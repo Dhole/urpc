@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use core::mem::swap;
 use hex;
 use std::io;
@@ -36,16 +37,16 @@ enum Error {
 // type SendBytesRequestBody<'a> = &'a [u8];
 
 // Auto
-#[derive(Debug)]
-enum RequestBody {
-    Ping([u8; 4]),
-    SendBytes(()),
-}
+// #[derive(Debug)]
+// enum RequestBody {
+//     Ping([u8; 4]),
+//     SendBytes(()),
+// }
 
 #[derive(Debug)]
 enum Request {
-    Ping(RequestType<[u8; 4]>),
-    SendBytes(RequestType<()>),
+    Ping(RequestType<[u8; 4], [u8; 4]>),
+    SendBytes(RequestType<(), ()>),
 }
 
 // #[derive(Debug)]
@@ -69,13 +70,14 @@ enum Request {
 // }
 
 #[derive(Debug)]
-struct RequestType<T: Serialize> {
+struct RequestType<Q: Serialize, P: Serialize> {
     header: urpc::RequestHeader,
-    body: T,
+    body: Q,
+    phantom: PhantomData<P>,
 }
 
-impl<T: Serialize> RequestType<T> {
-    pub fn reply(self, payload: T, mut reply_buf: &mut [u8]) -> postcard::Result<()> {
+impl<Q: Serialize, P: Serialize> RequestType<Q, P> {
+    pub fn reply(self, payload: P, mut reply_buf: &mut [u8]) -> postcard::Result<()> {
         let body_buf = postcard::to_slice(&payload, &mut reply_buf[REP_HEADER_LEN..])?;
         let header = urpc::ReplyHeader {
             chan_id: self.header.chan_id,
@@ -108,22 +110,30 @@ impl<T: Serialize> RequestType<T> {
 // }
 
 // Auto
-enum ReplyBody {
-    Ping([u8; 4]),
-    SendBytes(()),
-}
+// enum ReplyBody {
+//     Ping([u8; 4]),
+//     SendBytes(()),
+// }
 
 // Auto
-enum Reply<T> {
-    Ack,
-    Error(Error),
-    Body(T),
-}
+// enum Reply<T> {
+//     Ack,
+//     Error(Error),
+//     Body(T),
+// }
 
-fn req_body_from_bytes(header: &urpc::RequestHeader, buf: &[u8]) -> RequestBody {
+fn req_from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> Request {
     match header.method_idx {
-        0 => RequestBody::Ping(postcard::from_bytes(buf).unwrap()),
-        1 => RequestBody::SendBytes(postcard::from_bytes(buf).unwrap()),
+        0 => Request::Ping(RequestType::<[u8; 4], [u8; 4]> {
+            header: header,
+            body: postcard::from_bytes(buf).unwrap(),
+            phantom: PhantomData::<[u8; 4]>,
+        }),
+        1 => Request::SendBytes(RequestType::<(), ()> {
+            header: header,
+            body: postcard::from_bytes(buf).unwrap(),
+            phantom: PhantomData::<()>,
+        }),
         _ => {
             unreachable!();
         }
@@ -158,8 +168,8 @@ impl RpcClient {
 enum State {
     RecvHeader,
     RecvBody(urpc::RequestHeader),
-    RecvBuf(urpc::RequestHeader, RequestBody),
-    Request(urpc::RequestHeader, RequestBody),
+    RecvBuf(Request),
+    Request(Request),
 }
 
 enum RpcServerParseResult<'a> {
@@ -175,9 +185,6 @@ const REQ_HEADER_LEN: usize = 7;
 const REP_HEADER_LEN: usize = 6;
 
 impl RpcServer {
-    pub const fn header_bytes() -> usize {
-        REQ_HEADER_LEN
-    }
     pub fn new() -> Self {
         Self {
             state: State::RecvHeader,
@@ -197,32 +204,23 @@ impl RpcServer {
                     return ret;
                 }
                 State::RecvBody(req_header) => {
-                    let req_body = req_body_from_bytes(&req_header, &rcv_buf[..]);
-                    if req_header.buf_len == 0 {
-                        self.state = State::Request(req_header, req_body);
+                    let req_header_buf_len = req_header.buf_len;
+                    let req = req_from_bytes(req_header, &rcv_buf[..]);
+                    if req_header_buf_len == 0 {
+                        self.state = State::Request(req);
                     } else {
-                        let ret = RpcServerParseResult::NeedBytes(req_header.buf_len as usize);
-                        self.state = State::RecvBuf(req_header, req_body);
+                        let ret = RpcServerParseResult::NeedBytes(req_header_buf_len as usize);
+                        self.state = State::RecvBuf(req);
                         return ret;
                     }
                 }
-                State::RecvBuf(req_header, req_body) => {
+                State::RecvBuf(req) => {
                     opt_buf = Some(rcv_buf);
-                    self.state = State::Request(req_header, req_body);
+                    self.state = State::Request(req);
                 }
-                State::Request(req_header, req_body) => {
-                    let request = match req_body {
-                        RequestBody::Ping(body) => Request::Ping(RequestType::<[u8; 4]> {
-                            header: req_header,
-                            body,
-                        }),
-                        RequestBody::SendBytes(body) => Request::SendBytes(RequestType::<()> {
-                            header: req_header,
-                            body,
-                        }),
-                    };
+                State::Request(req) => {
                     self.state = State::RecvHeader;
-                    return RpcServerParseResult::Request(request, opt_buf);
+                    return RpcServerParseResult::Request(req, opt_buf);
                 }
             }
         }
@@ -253,7 +251,7 @@ fn main() -> () {
     {
         let mut buf = &mut read_buf;
         // println!("buf: {}", hex::encode(&buf));
-        let body_buf = postcard::to_slice(&(), &mut buf[RpcServer::header_bytes()..]).unwrap();
+        let body_buf = postcard::to_slice(&(), &mut buf[REQ_HEADER_LEN..]).unwrap();
         let body_buf_len = body_buf.len();
         let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
         buf[REQ_HEADER_LEN + body_buf_len..REQ_HEADER_LEN + body_buf_len + req_buf.len()]
@@ -275,7 +273,7 @@ fn main() -> () {
 
     let mut rpc_server = RpcServer::new();
     let mut pos = 0;
-    let mut read_len = RpcServer::header_bytes();
+    let mut read_len = REQ_HEADER_LEN;
     loop {
         let buf = &read_buf[pos..pos + read_len];
         println!("pos: {}, buf: {}", pos, hex::encode(buf));
@@ -285,7 +283,7 @@ fn main() -> () {
                 read_len = n;
             }
             RpcServerParseResult::Request(req, opt_buf) => {
-                read_len = RpcServer::header_bytes();
+                read_len = REQ_HEADER_LEN;
                 println!("request: {:?}, {:?}", req, opt_buf);
                 match req {
                     Request::Ping(ping) => {
