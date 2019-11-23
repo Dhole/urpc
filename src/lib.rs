@@ -15,15 +15,17 @@ pub struct RequestHeader {
     pub method_idx: u8,
     pub chan_id: u8,
     pub opts: u8,
-    pub body_length: u16,
-    pub buf_length: u16,
+    pub body_len: u16,
+    pub buf_len: u16,
 }
 
-// struct ReplyHeader {
-//     chan_id: u8,
-//     reply_type: ReplyType,
-//     length: u16,
-// }
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ReplyHeader {
+    pub chan_id: u8,
+    pub opts: u8,
+    pub body_len: u16,
+    pub buf_len: u16,
+}
 
 // enum ReplyType {
 //     Ack,
