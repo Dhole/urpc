@@ -1,21 +1,22 @@
 #![no_std]
 
-use postcard::from_bytes;
+use postcard::{from_bytes, Result};
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Opts {
     pub sync: bool,
     pub once: bool,
     pub cancel: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RequestHeader {
     pub method_idx: u8,
     pub chan_id: u8,
-    pub opts: Opts,
-    pub length: u16,
+    pub opts: u8,
+    pub body_length: u16,
+    pub buf_length: u16,
 }
 
 // struct ReplyHeader {
@@ -51,8 +52,8 @@ macro_rules! setup {
     };
 }
 
-pub fn req_header_from_bytes(buf: &[u8]) -> RequestHeader {
-    from_bytes(buf).unwrap()
+pub fn req_header_from_bytes(buf: &[u8]) -> Result<RequestHeader> {
+    from_bytes(buf)
 }
 
 // enum Reply {

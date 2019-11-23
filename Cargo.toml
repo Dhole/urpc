@@ -8,4 +8,8 @@ edition = "2018"
 
 [dependencies]
 postcard = "0.4.2"
+heapless = "0.5.1"
 serde = "1.0.102"
+
+[dev-dependencies]
+hex = "0.4.0"
