@@ -58,6 +58,10 @@ pub fn req_header_from_bytes(buf: &[u8]) -> Result<RequestHeader> {
     from_bytes(buf)
 }
 
+pub fn rep_header_from_bytes(buf: &[u8]) -> Result<ReplyHeader> {
+    from_bytes(buf)
+}
+
 // enum Reply {
 //     Ack,
 //     Error(Error),
