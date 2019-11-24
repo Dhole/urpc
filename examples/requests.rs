@@ -147,6 +147,10 @@ enum ClientRequest {
     SendBytes(()),
 }
 
+struct RpcClient {
+    chan_id: u8,
+}
+
 // TODO: Macro this
 fn req_to_bytes(
     req: ClientRequest,
@@ -182,19 +186,19 @@ fn req_to_bytes(
 // Client
 //
 
-struct RpcClient;
+// struct RpcClient;
 
-impl RpcClient {
-    fn ping(&self, data: &[u8; 4]) -> Result<[u8; 4], io::Error> {
-        let mut echo = [0; 4];
-        echo.copy_from_slice(data);
-        Ok(echo)
-    }
-
-    fn send_bytes(&self, bytes: &[u8]) -> Result<(), io::Error> {
-        Ok(())
-    }
-}
+// impl RpcClient {
+//     fn ping(&self, data: &[u8; 4]) -> Result<[u8; 4], io::Error> {
+//         let mut echo = [0; 4];
+//         echo.copy_from_slice(data);
+//         Ok(echo)
+//     }
+//
+//     fn send_bytes(&self, bytes: &[u8]) -> Result<(), io::Error> {
+//         Ok(())
+//     }
+// }
 
 // trait Rpc {
 //     type Request;
