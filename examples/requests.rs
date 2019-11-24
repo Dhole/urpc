@@ -151,35 +151,42 @@ struct RpcClient {
     chan_id: u8,
 }
 
-// TODO: Macro this
-fn req_to_bytes(
-    req: ClientRequest,
-    req_buf: Option<&[u8]>,
-    mut buf: &mut [u8],
-) -> postcard::Result<()> {
-    let (method_idx, body_buf) = match req {
-        ClientRequest::Ping(body) => (0, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?),
-        ClientRequest::SendBytes(body) => {
-            (1, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?)
-        }
-    };
-    let body_buf_len = body_buf.len();
-    let mut req_buf_len = 0;
-    if let Some(req_buf) = req_buf {
-        req_buf_len = req_buf.len();
-        buf[REQ_HEADER_LEN + body_buf_len..REQ_HEADER_LEN + body_buf_len + req_buf_len]
-            .copy_from_slice(&req_buf);
+impl RpcClient {
+    pub fn new() -> Self {
+        RpcClient { chan_id: 0 }
     }
-    let header = urpc::RequestHeader {
-        method_idx: method_idx,
-        chan_id: 5,
-        opts: 0,
-        body_len: body_buf_len as u16,
-        buf_len: req_buf_len as u16,
-    };
-    println!("client header: {:?}", header);
-    postcard::to_slice(&header, &mut buf)?;
-    Ok(())
+
+    pub fn req(
+        req: ClientRequest,
+        req_buf: Option<&[u8]>,
+        mut buf: &mut [u8],
+    ) -> postcard::Result<()> {
+        let (method_idx, body_buf) = match req {
+            ClientRequest::Ping(body) => {
+                (0, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?)
+            }
+            ClientRequest::SendBytes(body) => {
+                (1, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?)
+            }
+        };
+        let body_buf_len = body_buf.len();
+        let mut req_buf_len = 0;
+        if let Some(req_buf) = req_buf {
+            req_buf_len = req_buf.len();
+            buf[REQ_HEADER_LEN + body_buf_len..REQ_HEADER_LEN + body_buf_len + req_buf_len]
+                .copy_from_slice(&req_buf);
+        }
+        let header = urpc::RequestHeader {
+            method_idx: method_idx,
+            chan_id: 5,
+            opts: 0,
+            body_len: body_buf_len as u16,
+            buf_len: req_buf_len as u16,
+        };
+        println!("client header: {:?}", header);
+        postcard::to_slice(&header, &mut buf)?;
+        Ok(())
+    }
 }
 
 //
