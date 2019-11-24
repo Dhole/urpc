@@ -44,9 +44,9 @@ enum Error {
 // }
 
 #[derive(Debug)]
-enum Request {
-    Ping(RequestType<[u8; 4], [u8; 4]>),
-    SendBytes(RequestType<(), ()>),
+enum ServerRequest {
+    Ping(ServerRequestType<[u8; 4], [u8; 4]>),
+    SendBytes(ServerRequestType<(), ()>),
 }
 
 // #[derive(Debug)]
@@ -70,13 +70,13 @@ enum Request {
 // }
 
 #[derive(Debug)]
-struct RequestType<Q: Serialize, P: Serialize> {
+struct ServerRequestType<Q: Serialize, P: Serialize> {
     header: urpc::RequestHeader,
     body: Q,
     phantom: PhantomData<P>,
 }
 
-impl<Q: Serialize, P: Serialize> RequestType<Q, P> {
+impl<Q: Serialize, P: Serialize> ServerRequestType<Q, P> {
     pub fn reply(self, payload: P, mut reply_buf: &mut [u8]) -> postcard::Result<()> {
         let body_buf = postcard::to_slice(&payload, &mut reply_buf[REP_HEADER_LEN..])?;
         let header = urpc::ReplyHeader {
@@ -122,14 +122,15 @@ impl<Q: Serialize, P: Serialize> RequestType<Q, P> {
 //     Body(T),
 // }
 
-fn req_from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> Request {
+// TODO: Macro this
+fn req_from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> ServerRequest {
     match header.method_idx {
-        0 => Request::Ping(RequestType::<[u8; 4], [u8; 4]> {
+        0 => ServerRequest::Ping(ServerRequestType::<[u8; 4], [u8; 4]> {
             header: header,
             body: postcard::from_bytes(buf).unwrap(),
             phantom: PhantomData::<[u8; 4]>,
         }),
-        1 => Request::SendBytes(RequestType::<(), ()> {
+        1 => ServerRequest::SendBytes(ServerRequestType::<(), ()> {
             header: header,
             body: postcard::from_bytes(buf).unwrap(),
             phantom: PhantomData::<()>,
@@ -138,6 +139,43 @@ fn req_from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> Request {
             unreachable!();
         }
     }
+}
+
+#[derive(Debug)]
+enum ClientRequest {
+    Ping([u8; 4]),
+    SendBytes(()),
+}
+
+// TODO: Macro this
+fn req_to_bytes(
+    req: ClientRequest,
+    req_buf: Option<&[u8]>,
+    mut buf: &mut [u8],
+) -> postcard::Result<()> {
+    let (method_idx, body_buf) = match req {
+        ClientRequest::Ping(body) => (0, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?),
+        ClientRequest::SendBytes(body) => {
+            (1, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?)
+        }
+    };
+    let body_buf_len = body_buf.len();
+    let mut req_buf_len = 0;
+    if let Some(req_buf) = req_buf {
+        req_buf_len = req_buf.len();
+        buf[REQ_HEADER_LEN + body_buf_len..REQ_HEADER_LEN + body_buf_len + req_buf_len]
+            .copy_from_slice(&req_buf);
+    }
+    let header = urpc::RequestHeader {
+        method_idx: method_idx,
+        chan_id: 5,
+        opts: 0,
+        body_len: body_buf_len as u16,
+        buf_len: req_buf_len as u16,
+    };
+    println!("client header: {:?}", header);
+    postcard::to_slice(&header, &mut buf)?;
+    Ok(())
 }
 
 //
@@ -250,27 +288,29 @@ fn main() -> () {
     //     // println!("buf: {}", hex::encode(&buf));
     //     // println!("header len: {}", header_buf.len());
     // }
-    {
-        let mut buf = &mut read_buf;
-        // println!("buf: {}", hex::encode(&buf));
-        let body_buf = postcard::to_slice(&(), &mut buf[REQ_HEADER_LEN..]).unwrap();
-        let body_buf_len = body_buf.len();
-        let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-        buf[REQ_HEADER_LEN + body_buf_len..REQ_HEADER_LEN + body_buf_len + req_buf.len()]
-            .copy_from_slice(&req_buf);
-        let header = urpc::RequestHeader {
-            method_idx: 1,
-            chan_id: 5,
-            opts: 0,
-            body_len: body_buf_len as u16,
-            buf_len: req_buf.len() as u16,
-        };
-        println!("header: {:?}", header);
-        // println!("buf: {}", hex::encode(&buf));
-        postcard::to_slice(&header, &mut buf).unwrap();
-        // println!("buf: {}", hex::encode(&buf));
-        // println!("header len: {}", header_buf.len());
-    }
+    // {
+    //     let mut buf = &mut read_buf;
+    //     // println!("buf: {}", hex::encode(&buf));
+    //     let body_buf = postcard::to_slice(&(), &mut buf[REQ_HEADER_LEN..]).unwrap();
+    //     let body_buf_len = body_buf.len();
+    //     let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    //     buf[REQ_HEADER_LEN + body_buf_len..REQ_HEADER_LEN + body_buf_len + req_buf.len()]
+    //         .copy_from_slice(&req_buf);
+    //     let header = urpc::RequestHeader {
+    //         method_idx: 1,
+    //         chan_id: 5,
+    //         opts: 0,
+    //         body_len: body_buf_len as u16,
+    //         buf_len: req_buf.len() as u16,
+    //     };
+    //     println!("header: {:?}", header);
+    //     // println!("buf: {}", hex::encode(&buf));
+    //     postcard::to_slice(&header, &mut buf).unwrap();
+    //     // println!("buf: {}", hex::encode(&buf));
+    //     // println!("header len: {}", header_buf.len());
+    // }
+    let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    req_to_bytes(ClientRequest::SendBytes(()), Some(&req_buf), &mut read_buf).unwrap();
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
     let mut rpc_server = RpcServer::new(req_from_bytes);
@@ -288,11 +328,11 @@ fn main() -> () {
                 read_len = REQ_HEADER_LEN;
                 println!("request: {:?}, {:?}", req, opt_buf);
                 match req {
-                    Request::Ping(ping) => {
+                    ServerRequest::Ping(ping) => {
                         let ping_body = ping.body;
                         ping.reply(ping_body, &mut write_buf).unwrap();
                     }
-                    Request::SendBytes(send_bytes) => {
+                    ServerRequest::SendBytes(send_bytes) => {
                         println!("send_bytes: {}", hex::encode(opt_buf.unwrap()));
                         send_bytes.reply((), &mut write_buf).unwrap();
                     }
