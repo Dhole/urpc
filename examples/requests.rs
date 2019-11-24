@@ -165,33 +165,35 @@ impl RpcClient {
 //     fn
 // }
 
-enum State {
+enum State<R> {
     RecvHeader,
     RecvBody(urpc::RequestHeader),
-    RecvBuf(Request),
-    Request(Request),
+    RecvBuf(R),
+    Request(R),
 }
 
-enum RpcServerParseResult<'a> {
+enum RpcServerParseResult<'a, R> {
     NeedBytes(usize),
-    Request(Request, Option<&'a [u8]>),
+    Request(R, Option<&'a [u8]>),
 }
 
-struct RpcServer {
-    state: State,
+struct RpcServer<R> {
+    state: State<R>,
+    req_from_bytes: fn(header: urpc::RequestHeader, buf: &[u8]) -> R,
 }
 
 const REQ_HEADER_LEN: usize = 7;
 const REP_HEADER_LEN: usize = 6;
 
-impl RpcServer {
-    pub fn new() -> Self {
+impl<R> RpcServer<R> {
+    pub fn new(req_from_bytes: fn(header: urpc::RequestHeader, buf: &[u8]) -> R) -> Self {
         Self {
             state: State::RecvHeader,
+            req_from_bytes,
         }
     }
 
-    pub fn parse<'a>(&mut self, rcv_buf: &'a [u8]) -> RpcServerParseResult<'a> {
+    pub fn parse<'a>(&mut self, rcv_buf: &'a [u8]) -> RpcServerParseResult<'a, R> {
         let mut opt_buf: Option<&'a [u8]> = None;
         loop {
             let mut state = State::RecvHeader;
@@ -205,7 +207,7 @@ impl RpcServer {
                 }
                 State::RecvBody(req_header) => {
                     let req_header_buf_len = req_header.buf_len;
-                    let req = req_from_bytes(req_header, &rcv_buf[..]);
+                    let req = (self.req_from_bytes)(req_header, &rcv_buf[..]);
                     if req_header_buf_len == 0 {
                         self.state = State::Request(req);
                     } else {
@@ -271,7 +273,7 @@ fn main() -> () {
     }
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
-    let mut rpc_server = RpcServer::new();
+    let mut rpc_server = RpcServer::new(req_from_bytes);
     let mut pos = 0;
     let mut read_len = REQ_HEADER_LEN;
     loop {
