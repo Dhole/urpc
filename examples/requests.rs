@@ -124,61 +124,80 @@ impl<Q: Serialize, P: Serialize> ServerRequestType<Q, P> {
 // }
 
 // TODO: Macro this
-fn req_to_bytes(
-    chan_id: u8,
-    req: &mut ClientRequest,
-    buf: &mut [u8],
-) -> postcard::Result<urpc::RequestHeader> {
-    let (method_idx, body_buf) = match req {
-        ClientRequest::Ping(req) => {
-            req.chan_id = chan_id;
-            (
-                0,
-                postcard::to_slice(&req.body, &mut buf[REQ_HEADER_LEN..])?,
-            )
-        }
-        ClientRequest::SendBytes(req) => {
-            req.chan_id = chan_id;
-            (
-                1,
-                postcard::to_slice(&req.body, &mut buf[REQ_HEADER_LEN..])?,
-            )
-        }
-    };
-    Ok(urpc::RequestHeader {
-        method_idx,
-        chan_id,
-        opts: 0,
-        body_len: body_buf.len() as u16,
-        buf_len: 0,
-    })
+// fn req_to_bytes(
+//     chan_id: u8,
+//     req: &mut ClientRequest,
+//     buf: &mut [u8],
+// ) -> postcard::Result<urpc::RequestHeader> {
+//     let (method_idx, body_buf) = match req {
+//         ClientRequest::Ping(req) => {
+//             req.chan_id = chan_id;
+//             (
+//                 0,
+//                 postcard::to_slice(&req.body, &mut buf[REQ_HEADER_LEN..])?,
+//             )
+//         }
+//         ClientRequest::SendBytes(req) => {
+//             req.chan_id = chan_id;
+//             (
+//                 1,
+//                 postcard::to_slice(&req.body, &mut buf[REQ_HEADER_LEN..])?,
+//             )
+//         }
+//     };
+//     Ok(urpc::RequestHeader {
+//         method_idx,
+//         chan_id,
+//         opts: 0,
+//         body_len: body_buf.len() as u16,
+//         buf_len: 0,
+//     })
+// }
+
+pub trait ClientRequest {
+    type Q: Serialize;
+    type P: DeserializeOwned;
+
+    fn method_idx() -> u8;
+    // fn deserialize_reply(buf: &[u8]) -> postcard::Result<Self::P> {
+    //     postcard::from_bytes(&buf)
+    // }
 }
+
+struct ClientRequestPing;
+impl ClientRequest for ClientRequestPing {
+    type Q = [u8; 4];
+    type P = [u8; 4];
+
+    fn method_idx() -> u8 {
+        0
+    }
+}
+
+// #[derive(Debug)]
+// enum ClientRequest {
+//     Ping(ClientRequestType<[u8; 4], [u8; 4]>),
+//     SendBytes(ClientRequestType<(), ()>),
+// }
 
 #[derive(Debug)]
-enum ClientRequest {
-    Ping(ClientRequestType<[u8; 4], [u8; 4]>),
-    SendBytes(ClientRequestType<(), ()>),
-}
-
-#[derive(Debug)]
-struct ClientRequestType<Q: Serialize, P: DeserializeOwned> {
+struct ClientRequestType<R: ClientRequest> {
     chan_id: u8,
-    body: Q,
-    phantom: PhantomData<P>,
+    body: R::Q,
 }
 
-impl<Q: Serialize, P: DeserializeOwned> ClientRequestType<Q, P> {
-    pub fn new(req: Q) -> Self {
+impl<R: ClientRequest> ClientRequestType<R> {
+    pub fn new(req: R::Q) -> Self {
         Self {
             chan_id: 0,
             body: req,
-            phantom: PhantomData::<P>,
         }
     }
+
     pub fn reply(
         &mut self,
         rpc_client: &mut RpcClient,
-    ) -> Option<postcard::Result<(P, Option<Vec<u8>>)>> {
+    ) -> Option<postcard::Result<(R::P, Option<Vec<u8>>)>> {
         match rpc_client.replies[self.chan_id as usize].take() {
             None => None,
             Some((rep_header, rep_body_buf, opt_buf)) => {
@@ -189,6 +208,7 @@ impl<Q: Serialize, P: DeserializeOwned> ClientRequestType<Q, P> {
             }
         }
     }
+
     pub fn request(
         &mut self,
         req_buf: Option<&[u8]>,
@@ -197,7 +217,7 @@ impl<Q: Serialize, P: DeserializeOwned> ClientRequestType<Q, P> {
         mut buf: &mut [u8],
     ) -> postcard::Result<()> {
         let mut header = urpc::RequestHeader {
-            method_idx,
+            method_idx: R::method_idx(),
             chan_id: 0,
             opts: 0,
             body_len: 0,
@@ -414,7 +434,7 @@ fn main() -> () {
 
     let mut rpc_client = RpcClient::new();
     let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    let mut req = ClientRequestType::<(), ()>::new(());
+    let mut req = ClientRequestType::<ClientRequestPing>::new([0, 1, 2, 3]);
     req.request(Some(&req_buf), 1, &mut rpc_client, &mut read_buf);
     // rpc_client
     //     .req(
