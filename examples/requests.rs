@@ -4,6 +4,7 @@ use hex;
 use std::io;
 use urpc;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 // use heapless::{consts::*, Vec};
@@ -123,16 +124,30 @@ impl<Q: Serialize, P: Serialize> ServerRequestType<Q, P> {
 // }
 
 // TODO: Macro this
-fn req_to_bytes(req: ClientRequest, buf: &mut [u8]) -> postcard::Result<urpc::RequestHeader> {
+fn req_to_bytes(
+    chan_id: u8,
+    req: &mut ClientRequest,
+    buf: &mut [u8],
+) -> postcard::Result<urpc::RequestHeader> {
     let (method_idx, body_buf) = match req {
-        ClientRequest::Ping(body) => (0, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?),
-        ClientRequest::SendBytes(body) => {
-            (1, postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?)
+        ClientRequest::Ping(req) => {
+            req.chan_id = chan_id;
+            (
+                0,
+                postcard::to_slice(&req.body, &mut buf[REQ_HEADER_LEN..])?,
+            )
+        }
+        ClientRequest::SendBytes(req) => {
+            req.chan_id = chan_id;
+            (
+                1,
+                postcard::to_slice(&req.body, &mut buf[REQ_HEADER_LEN..])?,
+            )
         }
     };
     Ok(urpc::RequestHeader {
         method_idx,
-        chan_id: 0,
+        chan_id,
         opts: 0,
         body_len: body_buf.len() as u16,
         buf_len: 0,
@@ -141,29 +156,56 @@ fn req_to_bytes(req: ClientRequest, buf: &mut [u8]) -> postcard::Result<urpc::Re
 
 #[derive(Debug)]
 enum ClientRequest {
-    Ping([u8; 4]),
-    SendBytes(()),
+    Ping(ClientRequestType<[u8; 4], [u8; 4]>),
+    SendBytes(ClientRequestType<(), ()>),
 }
 
 #[derive(Debug)]
-struct ClientRequestType<'a, Q: Serialize, P: Deserialize<'a>, R> {
+struct ClientRequestType<Q: Serialize, P: DeserializeOwned> {
     chan_id: u8,
     body: Q,
-    phantom: PhantomData<(&'a P, R)>,
+    phantom: PhantomData<P>,
 }
 
-impl<'a, Q: Serialize, P: Deserialize<'a>, R> ClientRequestType<'a, Q, P, R> {
+impl<Q: Serialize, P: DeserializeOwned> ClientRequestType<Q, P> {
+    pub fn new(req: Q) -> Self {
+        Self {
+            chan_id: 0,
+            body: req,
+            phantom: PhantomData::<P>,
+        }
+    }
     pub fn reply(
-        &self,
-        rpc_client: &mut RpcClient<R>,
+        &mut self,
+        rpc_client: &mut RpcClient,
     ) -> Option<postcard::Result<(P, Option<Vec<u8>>)>> {
         match rpc_client.replies[self.chan_id as usize].take() {
             None => None,
-            Some((rep_header, rep, opt_buf)) => match postcard::from_bytes(&rep) {
-                Ok(r) => Some(Ok((r, opt_buf))),
-                Err(e) => Some(Err(e)),
-            },
+            Some((rep_header, rep_body_buf, opt_buf)) => {
+                match postcard::from_bytes(&rep_body_buf) {
+                    Ok(r) => Some(Ok((r, opt_buf))),
+                    Err(e) => Some(Err(e)),
+                }
+            }
         }
+    }
+    pub fn request(
+        &mut self,
+        req_buf: Option<&[u8]>,
+        method_idx: u8,
+        rpc_client: &mut RpcClient,
+        mut buf: &mut [u8],
+    ) -> postcard::Result<()> {
+        let mut header = urpc::RequestHeader {
+            method_idx,
+            chan_id: 0,
+            opts: 0,
+            body_len: 0,
+            buf_len: 0,
+        };
+        rpc_client.req(&mut header, &self.body, req_buf, &mut buf)?;
+        self.chan_id = header.chan_id;
+        Ok(())
     }
 }
 
@@ -174,43 +216,47 @@ enum ClientState {
     Reply(urpc::ReplyHeader, Vec<u8>, Option<Vec<u8>>),
 }
 
-struct RpcClient<R> {
+struct RpcClient {
     chan_id: u8,
     state: ClientState,
     pub replies: Vec<Option<(urpc::ReplyHeader, Vec<u8>, Option<Vec<u8>>)>>,
-    req_to_bytes: fn(req: R, buf: &mut [u8]) -> postcard::Result<urpc::RequestHeader>,
+    // req_to_bytes: fn(chan_id: u8, req: R, buf: &mut [u8]) -> postcard::Result<urpc::RequestHeader>,
 }
 
-impl<R> RpcClient<R> {
-    pub fn new(
-        req_to_bytes: fn(req: R, buf: &mut [u8]) -> postcard::Result<urpc::RequestHeader>,
+impl RpcClient {
+    pub fn new(// req_to_bytes: fn(
+        //    chan_id: u8,
+        //    req: R,
+        //     buf: &mut [u8],
+        //) -> postcard::Result<urpc::RequestHeader>,
     ) -> Self {
         RpcClient {
             chan_id: 0,
             state: ClientState::RecvHeader,
             replies: vec![None; 256],
-            req_to_bytes,
+            // req_to_bytes,
         }
     }
 
-    pub fn req(
+    pub fn req<S: Serialize>(
         &mut self,
-        req: R,
+        header: &mut urpc::RequestHeader,
+        body: &S,
         req_buf: Option<&[u8]>,
         mut buf: &mut [u8],
     ) -> postcard::Result<()> {
-        let mut header = (self.req_to_bytes)(req, &mut buf[REQ_HEADER_LEN..])?;
-        //let body_buf_len = body_buf.len();
-        let mut req_buf_len = 0;
-        if let Some(req_buf) = req_buf {
-            req_buf_len = req_buf.len();
-            buf[REQ_HEADER_LEN + header.body_len as usize
-                ..REQ_HEADER_LEN + header.body_len as usize + req_buf_len]
-                .copy_from_slice(&req_buf);
-        }
+        // let mut header = (self.req_to_bytes)(self.chan_id, req, &mut buf[REQ_HEADER_LEN..])?;
+        let body_buf = postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?;
+        header.body_len = body_buf.len() as u16;
         header.chan_id = self.chan_id;
         self.chan_id += 1;
-        header.buf_len = req_buf_len as u16;
+        //let body_buf_len = body_buf.len();
+        if let Some(req_buf) = req_buf {
+            header.buf_len = req_buf.len() as u16;
+            buf[REQ_HEADER_LEN + header.body_len as usize
+                ..REQ_HEADER_LEN + header.body_len as usize + req_buf.len()]
+                .copy_from_slice(&req_buf);
+        }
         println!("client header: {:?}", header);
         postcard::to_slice(&header, &mut buf)?;
         Ok(())
@@ -230,22 +276,22 @@ impl<R> RpcClient<R> {
                 }
                 ClientState::RecvBody(rep_header) => {
                     let rep_header_buf_len = rep_header.buf_len;
-                    let rep = Vec::from(rcv_buf);
+                    let rep_buf = Vec::from(rcv_buf);
                     if rep_header_buf_len == 0 {
-                        self.state = ClientState::Reply(rep_header, rep, None);
+                        self.state = ClientState::Reply(rep_header, rep_buf, None);
                     } else {
                         let n = rep_header_buf_len as usize;
-                        self.state = ClientState::RecvBuf(rep_header, rep);
+                        self.state = ClientState::RecvBuf(rep_header, rep_buf);
                         return Ok(n);
                     }
                 }
-                ClientState::RecvBuf(rep_header, rep) => {
+                ClientState::RecvBuf(rep_header, rep_buf) => {
                     opt_buf = Some(Vec::from(rcv_buf));
-                    self.state = ClientState::Reply(rep_header, rep, opt_buf);
+                    self.state = ClientState::Reply(rep_header, rep_buf, opt_buf);
                 }
-                ClientState::Reply(rep_header, rep, opt_buf) => {
+                ClientState::Reply(rep_header, rep_buf, opt_buf) => {
                     let chan_id = rep_header.chan_id;
-                    self.replies[chan_id as usize] = Some((rep_header, rep, opt_buf));
+                    self.replies[chan_id as usize] = Some((rep_header, rep_buf, opt_buf));
                     self.state = ClientState::RecvHeader;
                     return Ok(REP_HEADER_LEN);
                 }
@@ -366,11 +412,17 @@ fn main() -> () {
     let mut read_buf = vec![0; 32];
     let mut write_buf = vec![0; 32];
 
-    let mut rpc_client = RpcClient::new(req_to_bytes);
+    let mut rpc_client = RpcClient::new();
     let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    rpc_client
-        .req(ClientRequest::SendBytes(()), Some(&req_buf), &mut read_buf)
-        .unwrap();
+    let mut req = ClientRequestType::<(), ()>::new(());
+    req.request(Some(&req_buf), 1, &mut rpc_client, &mut read_buf);
+    // rpc_client
+    //     .req(
+    //         &mut ClientRequest::SendBytes(req),
+    //         Some(&req_buf),
+    //         &mut read_buf,
+    //     )
+    //     .unwrap();
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
     let mut rpc_server = RpcServer::new(req_from_bytes);
@@ -410,5 +462,12 @@ fn main() -> () {
         println!("pos: {}, buf: {}", pos, hex::encode(buf));
         pos += read_len;
         read_len = rpc_client.parse(&buf).unwrap();
+        match req.reply(&mut rpc_client) {
+            Some(r) => {
+                println!("reply: {:?}", r.unwrap());
+                break;
+            }
+            None => {}
+        }
     }
 }
