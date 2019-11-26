@@ -1,7 +1,22 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[macro_use]
+mod macros;
+
+#[cfg(feature = "std")]
+pub mod client;
+pub mod consts;
+pub mod server;
 
 use postcard::{from_bytes, Result};
 use serde::{Deserialize, Serialize};
+
+// Auto
+// enum Error {
+//     InvalidMethod,
+//     InvalidBody,
+//     Busy,
+// }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Opts {
@@ -33,27 +48,6 @@ pub struct ReplyHeader {
 //     Data,
 // }
 
-#[macro_export]
-macro_rules! setup {
-    ( methods: [
-      $( {
-          name: $method_name:ident,
-          request_type: $req_body_type:ty
-      } ),* ],
-      errors: [ $( $err_name:ident ),* ]) => {
-        enum RequestBody {
-            $(
-                $method_name($req_body_type),
-            )*
-        }
-        enum Error {
-            $(
-                $err_name,
-            )*
-        }
-    };
-}
-
 pub fn req_header_from_bytes(buf: &[u8]) -> Result<RequestHeader> {
     from_bytes(buf)
 }
@@ -61,86 +55,3 @@ pub fn req_header_from_bytes(buf: &[u8]) -> Result<RequestHeader> {
 pub fn rep_header_from_bytes(buf: &[u8]) -> Result<ReplyHeader> {
     from_bytes(buf)
 }
-
-// enum Reply {
-//     Ack,
-//     Error(Error),
-//     Data(ReplyData),
-// }
-//
-// enum Request {
-//     Body(RequestBody),
-// }
-
-// struct Method {
-//     idx: u8,
-//     body:
-// }
-
-// fn req_header_from_bytes(&[u8]) -> RequestHeader {
-//     unimplemented!();
-// }
-
-// fn req_body_from_bytes(&[u8]) -> ReplyBody {
-//
-// }
-//
-// // Auto generated
-//
-// enum RequestBody {
-//     SendBytes(BodySendBytes),
-//     RecvBytes(BodyRecvBytes),
-//     Reset(BodyReset),
-//     Ping(BodyPing),
-// }
-//
-// enum Error {
-//     Example
-// }
-//
-// enum ReplyBody {
-//     None,
-//
-// }
-//
-// // User
-//
-// enum Method {
-//     SendBytes,
-//     RecvBytes,
-//     Reset,
-//     Ping,
-//     // EndHandshake,
-//     // Handshake,
-//     // Status,
-// }
-//
-// register_methods![
-//     (SendBytes, [u8]),
-//     (RecvBytes, ()),
-//     (Reset, ()),
-//     (Ping, [4; u8]),
-// ]
-//
-// register_errors![
-//     Busy,
-//     InvalidBody,
-// ]
-//
-// enum ReplyBody {
-//
-// }
-//
-// {
-//     let req_header_buf = [0; 5];
-//     let req_header = req_header_from_bytes(&req_header_buf);
-//
-//     let req_body_buf = [0; req_header.len()]:
-//     let req_body = req_body_from_bytes(&req_header, req_header_body_buf);
-//     match req_body {
-//         RequestBody::SendBytes(body) => {},
-//         RequestBody::RecvBytes(body) => {},
-//         RequestBody::Reset(body) => {},
-//         RequestBody::Ping(body) => {},
-//     }
-// }

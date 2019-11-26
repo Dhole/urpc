@@ -13,3 +13,7 @@ serde = "1.0.102"
 
 [dev-dependencies]
 hex = "0.4.0"
+
+[features]
+default = ["std"]
+std = []
