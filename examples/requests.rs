@@ -352,29 +352,35 @@ mod server {
     enum State<R> {
         RecvHeader,
         RecvBody(urpc::RequestHeader),
-        RecvBuf(R),
-        Request(R),
+        RecvBuf(postcard::Result<R>),
+        Request(postcard::Result<R>),
     }
 
     pub enum ParseResult<'a, R> {
         NeedBytes(usize),
-        Request(R, Option<&'a [u8]>),
+        Request(postcard::Result<R>, Option<&'a [u8]>),
     }
 
-    pub struct RpcServer<R> {
-        state: State<R>,
-        req_from_bytes: fn(header: urpc::RequestHeader, buf: &[u8]) -> R,
+    pub trait Request {
+        type R;
+
+        fn from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> postcard::Result<Self::R>;
     }
 
-    impl<R> RpcServer<R> {
-        pub fn new(req_from_bytes: fn(header: urpc::RequestHeader, buf: &[u8]) -> R) -> Self {
+    pub struct RpcServer<R: Request> {
+        state: State<R::R>,
+        // req_from_bytes: fn(header: urpc::RequestHeader, buf: &[u8]) -> R,
+    }
+
+    impl<R: Request> RpcServer<R> {
+        pub fn new() -> Self {
             Self {
                 state: State::RecvHeader,
-                req_from_bytes,
+                // req_from_bytes,
             }
         }
 
-        pub fn parse<'a>(&mut self, rcv_buf: &'a [u8]) -> ParseResult<'a, R> {
+        pub fn parse<'a>(&mut self, rcv_buf: &'a [u8]) -> ParseResult<'a, R::R> {
             let mut opt_buf: Option<&'a [u8]> = None;
             loop {
                 let mut state = State::RecvHeader;
@@ -388,7 +394,7 @@ mod server {
                     }
                     State::RecvBody(req_header) => {
                         let req_header_buf_len = req_header.buf_len;
-                        let req = (self.req_from_bytes)(req_header, &rcv_buf[..]);
+                        let req = R::from_bytes(req_header, &rcv_buf[..]);
                         if req_header_buf_len == 0 {
                             self.state = State::Request(req);
                         } else {
@@ -432,6 +438,16 @@ impl client::Request for ClientRequestPing {
     }
 }
 
+struct ClientRequestSendBytes;
+impl client::Request for ClientRequestSendBytes {
+    type Q = ();
+    type P = ();
+
+    fn method_idx() -> u8 {
+        1
+    }
+}
+
 //
 // Server
 //
@@ -443,16 +459,30 @@ enum ServerRequest {
     SendBytes(server::RequestType<(), ()>),
 }
 
-// TODO: Macro this
-fn req_from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> postcard::Result<ServerRequest> {
-    Ok(match header.method_idx {
-        0 => ServerRequest::Ping(server::RequestType::from_bytes(header, buf)?),
-        1 => ServerRequest::SendBytes(server::RequestType::from_bytes(header, buf)?),
-        _ => {
-            return Err(postcard::Error::WontImplement);
-        }
-    })
+impl server::Request for ServerRequest {
+    type R = Self;
+
+    fn from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> postcard::Result<Self> {
+        Ok(match header.method_idx {
+            0 => ServerRequest::Ping(server::RequestType::from_bytes(header, buf)?),
+            1 => ServerRequest::SendBytes(server::RequestType::from_bytes(header, buf)?),
+            _ => {
+                return Err(postcard::Error::WontImplement);
+            }
+        })
+    }
 }
+
+// TODO: Macro this
+// fn req_from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> postcard::Result<ServerRequest> {
+//     Ok(match header.method_idx {
+//         0 => ServerRequest::Ping(server::RequestType::from_bytes(header, buf)?),
+//         1 => ServerRequest::SendBytes(server::RequestType::from_bytes(header, buf)?),
+//         _ => {
+//             return Err(postcard::Error::WontImplement);
+//         }
+//     })
+// }
 
 fn main() -> () {
     let mut read_buf = vec![0; 32];
@@ -471,7 +501,7 @@ fn main() -> () {
     //     .unwrap();
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
-    let mut rpc_server = server::RpcServer::new(req_from_bytes);
+    let mut rpc_server = server::RpcServer::<ServerRequest>::new();
     let mut pos = 0;
     let mut read_len = consts::REQ_HEADER_LEN;
     loop {
