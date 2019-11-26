@@ -489,9 +489,14 @@ fn main() -> () {
     let mut write_buf = vec![0; 32];
 
     let mut rpc_client = client::RpcClient::new();
-    let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+
+    //let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    //let mut req = client::RequestType::<ClientRequestSendBytes>::new(());
+    //req.request(Some(&req_buf), &mut rpc_client, &mut read_buf);
+
     let mut req = client::RequestType::<ClientRequestPing>::new([0, 1, 2, 3]);
-    req.request(Some(&req_buf), &mut rpc_client, &mut read_buf);
+    req.request(None, &mut rpc_client, &mut read_buf);
+
     // rpc_client
     //     .req(
     //         &mut ClientRequest::SendBytes(req),
