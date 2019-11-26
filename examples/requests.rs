@@ -428,6 +428,7 @@ mod server {
 // Client
 //
 
+// TODO: Macro this
 struct ClientRequestPing;
 impl client::Request for ClientRequestPing {
     type Q = [u8; 4];
@@ -438,6 +439,7 @@ impl client::Request for ClientRequestPing {
     }
 }
 
+// TODO: Macro this
 struct ClientRequestSendBytes;
 impl client::Request for ClientRequestSendBytes {
     type Q = ();
@@ -459,6 +461,7 @@ enum ServerRequest {
     SendBytes(server::RequestType<(), ()>),
 }
 
+// TODO: Macro this
 impl server::Request for ServerRequest {
     type R = Self;
 
@@ -472,17 +475,6 @@ impl server::Request for ServerRequest {
         })
     }
 }
-
-// TODO: Macro this
-// fn req_from_bytes(header: urpc::RequestHeader, buf: &[u8]) -> postcard::Result<ServerRequest> {
-//     Ok(match header.method_idx {
-//         0 => ServerRequest::Ping(server::RequestType::from_bytes(header, buf)?),
-//         1 => ServerRequest::SendBytes(server::RequestType::from_bytes(header, buf)?),
-//         _ => {
-//             return Err(postcard::Error::WontImplement);
-//         }
-//     })
-// }
 
 fn main() -> () {
     let mut read_buf = vec![0; 32];
