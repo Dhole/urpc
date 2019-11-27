@@ -22,7 +22,7 @@ impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
             phantom: PhantomData::<P>,
         })
     }
-    pub fn reply(self, payload: P, mut reply_buf: &mut [u8]) -> Result<()> {
+    pub fn reply(self, payload: P, mut reply_buf: &mut [u8]) -> Result<usize> {
         let body_buf = postcard::to_slice(&payload, &mut reply_buf[REP_HEADER_LEN..])?;
         let header = ReplyHeader {
             chan_id: self.chan_id,
@@ -31,7 +31,7 @@ impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
             buf_len: 0,
         };
         postcard::to_slice(&header, &mut reply_buf)?;
-        Ok(())
+        Ok(REP_HEADER_LEN + header.body_len as usize + header.buf_len as usize)
     }
     pub fn reply_err(self, err: u8) -> () {
         unimplemented!();
