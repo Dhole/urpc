@@ -25,13 +25,13 @@ macro_rules! server_requests {
         impl server::Request for $request_enum {
             type R = Self;
 
-            fn from_bytes(header: $crate::RequestHeader, buf: &[u8]) -> postcard::Result<Self> {
+            fn from_bytes(header: $crate::RequestHeader, buf: &[u8]) -> $crate::Result<Self> {
                 Ok(match header.method_idx {
                     $(
                         $id => $request_enum::$method($crate::server::RequestType::from_bytes(header, buf)?),
                     )*
                     _ => {
-                        return Err(postcard::Error::WontImplement);
+                        return Err($crate::Error::WontImplement);
                     }
                 })
             }

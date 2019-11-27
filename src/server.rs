@@ -15,14 +15,14 @@ pub struct RequestType<Q: DeserializeOwned, P: Serialize> {
 }
 
 impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
-    pub fn from_bytes(header: RequestHeader, buf: &[u8]) -> postcard::Result<Self> {
+    pub fn from_bytes(header: RequestHeader, buf: &[u8]) -> Result<Self> {
         Ok(Self {
             chan_id: header.chan_id,
             body: postcard::from_bytes(buf)?,
             phantom: PhantomData::<P>,
         })
     }
-    pub fn reply(self, payload: P, mut reply_buf: &mut [u8]) -> postcard::Result<()> {
+    pub fn reply(self, payload: P, mut reply_buf: &mut [u8]) -> Result<()> {
         let body_buf = postcard::to_slice(&payload, &mut reply_buf[REP_HEADER_LEN..])?;
         let header = ReplyHeader {
             chan_id: self.chan_id,
@@ -41,19 +41,19 @@ impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
 enum State<R> {
     RecvHeader,
     RecvBody(RequestHeader),
-    RecvBuf(postcard::Result<R>),
-    Request(postcard::Result<R>),
+    RecvBuf(Result<R>),
+    Request(Result<R>),
 }
 
 pub enum ParseResult<'a, R> {
     NeedBytes(usize),
-    Request(postcard::Result<R>, Option<&'a [u8]>),
+    Request(Result<R>, Option<&'a [u8]>),
 }
 
 pub trait Request {
     type R;
 
-    fn from_bytes(header: RequestHeader, buf: &[u8]) -> postcard::Result<Self::R>;
+    fn from_bytes(header: RequestHeader, buf: &[u8]) -> Result<Self::R>;
 }
 
 pub struct RpcServer<R: Request> {

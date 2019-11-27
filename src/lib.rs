@@ -8,7 +8,7 @@ pub mod client;
 pub mod consts;
 pub mod server;
 
-use postcard::{from_bytes, Result};
+use postcard::from_bytes;
 use serde::{Deserialize, Serialize};
 
 // Auto
@@ -17,6 +17,9 @@ use serde::{Deserialize, Serialize};
 //     InvalidBody,
 //     Busy,
 // }
+
+pub type Result<T> = postcard::Result<T>;
+pub type Error = postcard::Error;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Opts {

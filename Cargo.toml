@@ -9,11 +9,14 @@ edition = "2018"
 [dependencies]
 postcard = "0.4.2"
 heapless = "0.5.1"
-serde = "1.0.102"
+
+[dependencies.serde]
+version = "1.0.102"
+default-features = false
 
 [dev-dependencies]
 hex = "0.4.0"
 
 [features]
 default = ["std"]
-std = []
+std = ["serde/std"]

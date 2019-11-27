@@ -27,10 +27,7 @@ impl<R: Request> RequestType<R> {
         }
     }
 
-    pub fn reply(
-        &mut self,
-        rpc_client: &mut RpcClient,
-    ) -> Option<postcard::Result<(R::P, Option<Vec<u8>>)>> {
+    pub fn reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Option<Vec<u8>>)>> {
         match rpc_client.replies[self.chan_id as usize].take() {
             None => None,
             Some((rep_header, rep_body_buf, opt_buf)) => {
@@ -47,7 +44,7 @@ impl<R: Request> RequestType<R> {
         req_buf: Option<&[u8]>,
         rpc_client: &mut RpcClient,
         mut buf: &mut [u8],
-    ) -> postcard::Result<()> {
+    ) -> Result<()> {
         let mut header = RequestHeader {
             method_idx: R::method_idx(),
             chan_id: 0,
@@ -89,7 +86,7 @@ impl RpcClient {
         body: &S,
         req_buf: Option<&[u8]>,
         mut buf: &mut [u8],
-    ) -> postcard::Result<()> {
+    ) -> Result<()> {
         let body_buf = postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?;
         header.body_len = body_buf.len() as u16;
         header.chan_id = self.chan_id;
@@ -104,7 +101,7 @@ impl RpcClient {
         Ok(())
     }
 
-    pub fn parse(&mut self, rcv_buf: &[u8]) -> postcard::Result<(usize, Option<u8>)> {
+    pub fn parse(&mut self, rcv_buf: &[u8]) -> Result<(usize, Option<u8>)> {
         let mut opt_buf: Option<Vec<u8>> = None;
         loop {
             let mut state = State::RecvHeader;
