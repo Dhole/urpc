@@ -44,7 +44,7 @@ impl<R: Request> RequestType<R> {
         req_buf: Option<&[u8]>,
         rpc_client: &mut RpcClient,
         mut buf: &mut [u8],
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let mut header = RequestHeader {
             method_idx: R::method_idx(),
             chan_id: 0,
@@ -52,9 +52,9 @@ impl<R: Request> RequestType<R> {
             body_len: 0,
             buf_len: 0,
         };
-        rpc_client.req(&mut header, &self.body, req_buf, &mut buf)?;
+        let n = rpc_client.req(&mut header, &self.body, req_buf, &mut buf)?;
         self.chan_id = header.chan_id;
-        Ok(())
+        Ok(n)
     }
 }
 
@@ -86,7 +86,7 @@ impl RpcClient {
         body: &S,
         req_buf: Option<&[u8]>,
         mut buf: &mut [u8],
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let body_buf = postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?;
         header.body_len = body_buf.len() as u16;
         header.chan_id = self.chan_id;
@@ -98,7 +98,7 @@ impl RpcClient {
                 .copy_from_slice(&req_buf);
         }
         postcard::to_slice(&header, &mut buf)?;
-        Ok(())
+        Ok(REQ_HEADER_LEN + header.body_len as usize + header.buf_len as usize)
     }
 
     pub fn parse(&mut self, rcv_buf: &[u8]) -> Result<(usize, Option<u8>)> {
