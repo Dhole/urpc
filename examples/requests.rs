@@ -15,8 +15,9 @@ server_requests! {
 }
 
 fn main() -> () {
-    let mut read_buf = vec![0; 32];
-    let mut write_buf = vec![0; 32];
+    const buf_len: usize = 32;
+    let mut read_buf = vec![0; buf_len];
+    let mut write_buf = vec![0; buf_len];
 
     let mut rpc_client = client::RpcClient::new();
 
@@ -25,18 +26,25 @@ fn main() -> () {
     //req.request(Some(&req_buf), &mut rpc_client, &mut read_buf);
 
     let mut req = client::RequestType::<ClientRequestPing>::new([0, 1, 2, 3]);
-    req.request(None, &mut rpc_client, &mut read_buf).unwrap();
+    req.request(
+        None,
+        &mut rpc_client,
+        vec![0; buf_len],
+        Some(vec![0; buf_len]),
+        &mut read_buf,
+    )
+    .unwrap();
 
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
-    let mut rpc_server = server::RpcServer::<ServerRequest>::new();
+    let mut rpc_server = server::RpcServer::<ServerRequest>::new(buf_len as u16);
     let mut pos = 0;
     let mut read_len = consts::REQ_HEADER_LEN;
     loop {
         let buf = &read_buf[pos..pos + read_len];
         println!("pos: {}, buf: {}", pos, hex::encode(buf));
         pos += read_len;
-        match rpc_server.parse(&buf) {
+        match rpc_server.parse(&buf).unwrap() {
             server::ParseResult::NeedBytes(n) => {
                 read_len = n;
             }
