@@ -5,9 +5,7 @@ macro_rules! client_request {
         impl $crate::client::Request for $method {
             type Q = $req_type;
             type P = $rep_type;
-            fn method_idx() -> u8 {
-                $id
-            }
+            const METHOD_ID: u8 = $id;
         }
     };
 }

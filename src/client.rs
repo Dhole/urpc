@@ -9,14 +9,17 @@ use serde::{de::DeserializeOwned, Serialize};
 pub trait Request {
     type Q: Serialize;
     type P: DeserializeOwned;
-
-    fn method_idx() -> u8;
+    const METHOD_ID: u8;
+    // const B: bool;
 }
+
+// enum RequestState {}
 
 #[derive(Debug)]
 pub struct RequestType<R: Request> {
     chan_id: u8,
     body: R::Q,
+    // state: RequestState,
 }
 
 impl<R: Request> RequestType<R> {
@@ -38,7 +41,9 @@ impl<R: Request> RequestType<R> {
             }
         }
     }
+}
 
+impl<R: Request> RequestType<R> {
     pub fn request(
         &mut self,
         req_buf: Option<&[u8]>,
@@ -48,7 +53,7 @@ impl<R: Request> RequestType<R> {
         mut buf: &mut [u8],
     ) -> Result<usize> {
         let mut header = RequestHeader {
-            method_idx: R::method_idx(),
+            method_idx: R::METHOD_ID,
             chan_id: 0,
             opts: 0,
             body_len: 0,
