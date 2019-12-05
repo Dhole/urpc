@@ -73,6 +73,7 @@ enum State {
 }
 
 enum ReplyState {
+    // TODO: Use field name in enum like { rep_buf: Vec<u8>, ... }
     Empty,
     Waiting(Vec<u8>, Option<Vec<u8>>),
     Receiving,
@@ -154,6 +155,7 @@ impl RpcClient {
         RpcClient {
             chan_id: 0,
             state: State::RecvHeader,
+            // TODO: Use a vector here for my own sanity
             replies: array![ReplyState::Empty; 256],
         }
     }
