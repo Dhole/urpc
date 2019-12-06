@@ -50,9 +50,10 @@ impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
 }
 
 enum State<R> {
-    RecvHeader,
-    RecvBody(RequestHeader),
-    RecvBuf(Result<R>),
+    WaitHeader,
+    WaitBody(RequestHeader),
+    RecvdBody(Result<R>, u16),
+    WaitBuf(Result<R>),
     Request(Result<R>),
 }
 
@@ -76,17 +77,17 @@ impl<R: Request> RpcServer<R> {
     pub fn new(max_buf_len: u16) -> Self {
         Self {
             max_buf_len,
-            state: State::RecvHeader,
+            state: State::WaitHeader,
         }
     }
 
     pub fn parse<'a>(&mut self, rcv_buf: &'a [u8]) -> Result<ParseResult<'a, R::R>> {
         let mut opt_buf: Option<&'a [u8]> = None;
         loop {
-            let mut state = State::RecvHeader;
+            let mut state = State::WaitHeader;
             swap(&mut state, &mut self.state);
             match state {
-                State::RecvHeader => {
+                State::WaitHeader => {
                     let req_header = req_header_from_bytes(&rcv_buf)?;
                     if req_header.body_len >= self.max_buf_len {
                         // TODO: Make custom error
@@ -100,36 +101,33 @@ impl<R: Request> RpcServer<R> {
                     let req_header_buf_len = req_header.buf_len;
                     if req_header_body_len == 0 {
                         let req = R::from_bytes(req_header, &[]);
-                        if req_header_buf_len == 0 {
-                            self.state = State::Request(req);
-                        } else {
-                            let ret = ParseResult::NeedBytes(req_header_buf_len as usize);
-                            self.state = State::RecvBuf(req);
-                            return Ok(ret);
-                        }
+                        self.state = State::RecvdBody(req, req_header_buf_len);
                     } else {
                         let ret = ParseResult::NeedBytes(req_header.body_len as usize);
-                        self.state = State::RecvBody(req_header);
+                        self.state = State::WaitBody(req_header);
                         return Ok(ret);
                     }
                 }
-                State::RecvBody(req_header) => {
+                State::WaitBody(req_header) => {
                     let req_header_buf_len = req_header.buf_len;
                     let req = R::from_bytes(req_header, &rcv_buf[..]);
+                    self.state = State::RecvdBody(req, req_header_buf_len)
+                }
+                State::RecvdBody(req, req_header_buf_len) => {
                     if req_header_buf_len == 0 {
                         self.state = State::Request(req);
                     } else {
                         let ret = ParseResult::NeedBytes(req_header_buf_len as usize);
-                        self.state = State::RecvBuf(req);
+                        self.state = State::WaitBuf(req);
                         return Ok(ret);
                     }
                 }
-                State::RecvBuf(req) => {
+                State::WaitBuf(req) => {
                     opt_buf = Some(rcv_buf);
                     self.state = State::Request(req);
                 }
                 State::Request(req) => {
-                    self.state = State::RecvHeader;
+                    self.state = State::WaitHeader;
                     return Ok(ParseResult::Request(req, opt_buf));
                 }
             }

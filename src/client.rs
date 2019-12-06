@@ -193,9 +193,10 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
 }
 
 enum State {
-    RecvHeader,
-    RecvBody(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
-    RecvBuf(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
+    WaitHeader,
+    WaitBody(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
+    RecvdBody(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
+    WaitBuf(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
     Reply(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
 }
 
@@ -260,7 +261,7 @@ impl RpcClient {
         let reply_slots = (0..256).map(|_| ReplyState::Empty).collect();
         RpcClient {
             chan_id: 0,
-            state: State::RecvHeader,
+            state: State::WaitHeader,
             reply_slots,
         }
     }
@@ -309,11 +310,11 @@ impl RpcClient {
     // deserialized reply.
     pub fn parse(&mut self, rcv_buf: &[u8]) -> Result<(usize, Option<u8>)> {
         loop {
-            let mut state = State::RecvHeader;
+            let mut state = State::WaitHeader;
             swap(&mut state, &mut self.state);
             match state {
                 // Initial state: waiting for the header bytes
-                State::RecvHeader => {
+                State::WaitHeader => {
                     let rep_header = rep_header_from_bytes(&rcv_buf)?;
                     match self.reply_slots[rep_header.chan_id as usize].take_waiting() {
                         // Check that there's a valid reply slot for this reply.
@@ -344,34 +345,31 @@ impl RpcClient {
                             }
                             let n = rep_header.body_len as usize;
                             if n == 0 {
-                                if rep_header.buf_len == 0 {
-                                    self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
-                                } else {
-                                    let n = rep_header.buf_len as usize;
-                                    self.state = State::RecvBuf(rep_header, rep_body_buf, opt_buf);
-                                    return Ok((n, None));
-                                }
+                                self.state = State::RecvdBody(rep_header, rep_body_buf, opt_buf);
                             } else {
-                                self.state = State::RecvBody(rep_header, rep_body_buf, opt_buf);
+                                self.state = State::WaitBody(rep_header, rep_body_buf, opt_buf);
                                 return Ok((n, None));
                             }
                         }
                     }
                 }
                 // Received body bytes
-                State::RecvBody(rep_header, mut rep_body_buf, opt_buf) => {
+                State::WaitBody(rep_header, mut rep_body_buf, opt_buf) => {
                     let rep_header_buf_len = rep_header.buf_len;
                     rep_body_buf[..rcv_buf.len()].copy_from_slice(rcv_buf);
-                    if rep_header_buf_len == 0 {
+                    self.state = State::RecvdBody(rep_header, rep_body_buf, opt_buf);
+                }
+                State::RecvdBody(rep_header, mut rep_body_buf, opt_buf) => {
+                    if rep_header.buf_len == 0 {
                         self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
                     } else {
-                        let n = rep_header_buf_len as usize;
-                        self.state = State::RecvBuf(rep_header, rep_body_buf, opt_buf);
+                        let n = rep_header.buf_len as usize;
+                        self.state = State::WaitBuf(rep_header, rep_body_buf, opt_buf);
                         return Ok((n, None));
                     }
                 }
                 // Received optional buffer bytes
-                State::RecvBuf(rep_header, rep_body_buf, mut opt_buf) => {
+                State::WaitBuf(rep_header, rep_body_buf, mut opt_buf) => {
                     match &mut opt_buf {
                         Some(buf) => {
                             buf[..rcv_buf.len()].copy_from_slice(rcv_buf);
@@ -388,7 +386,7 @@ impl RpcClient {
                         rep_body_buf,
                         opt_buf,
                     };
-                    self.state = State::RecvHeader;
+                    self.state = State::WaitHeader;
                     return Ok((REP_HEADER_LEN, Some(chan_id)));
                 }
             }
