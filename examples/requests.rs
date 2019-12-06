@@ -29,7 +29,7 @@ fn main() -> () {
     //req.request(Some(&req_buf), &mut rpc_client, &mut read_buf);
 
     let mut req = ClientRequestPing::new([0, 1, 2, 3]);
-    req.request(None, &mut rpc_client, vec![0; buf_len], &mut read_buf)
+    req.request(&mut rpc_client, vec![0; buf_len], &mut read_buf)
         .unwrap();
 
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
