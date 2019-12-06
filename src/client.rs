@@ -1,6 +1,7 @@
 use super::consts::*;
 use super::*;
 
+use core::marker::PhantomData;
 use core::mem::swap;
 
 use postcard;
@@ -10,46 +11,42 @@ pub trait Request {
     type Q: Serialize;
     type P: DeserializeOwned;
     const METHOD_ID: u8;
-    // const B: bool;
 }
 
 // enum RequestState {}
 
 #[derive(Debug)]
-pub struct RequestType<R: Request> {
+pub struct RequestType<R: Request, QB: OptBuf, PB: OptBuf> {
     chan_id: u8,
     body: R::Q,
+    phantom: PhantomData<(QB, PB)>,
     // state: RequestState,
 }
 
-impl<R: Request> RequestType<R> {
+pub trait OptBuf {}
+
+pub struct OptBufYes {}
+impl OptBuf for OptBufYes {}
+pub struct OptBufNo {}
+impl OptBuf for OptBufNo {}
+
+impl<R: Request, QB: OptBuf, PB: OptBuf> RequestType<R, QB, PB> {
     pub fn new(req: R::Q) -> Self {
         Self {
             chan_id: 0,
             body: req,
-        }
-    }
-
-    pub fn reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Option<Vec<u8>>)>> {
-        match rpc_client.take_reply(self.chan_id) {
-            None => None,
-            Some((rep_header, rep_body_buf, opt_buf)) => {
-                match postcard::from_bytes(&rep_body_buf) {
-                    Ok(r) => Some(Ok((r, opt_buf))),
-                    Err(e) => Some(Err(e)),
-                }
-            }
+            phantom: PhantomData::<(QB, PB)>,
         }
     }
 }
 
-impl<R: Request> RequestType<R> {
+impl<R: Request, PB: OptBuf> RequestType<R, OptBufYes, PB> {
     pub fn request(
         &mut self,
         req_buf: Option<&[u8]>,
         rpc_client: &mut RpcClient,
         rep_buf: Vec<u8>,
-        opt_buf: Option<Vec<u8>>,
+        opt_buf: Vec<u8>,
         mut buf: &mut [u8],
     ) -> Result<usize> {
         let mut header = RequestHeader {
@@ -59,9 +56,65 @@ impl<R: Request> RequestType<R> {
             body_len: 0,
             buf_len: 0,
         };
-        let n = rpc_client.req(&mut header, &self.body, req_buf, rep_buf, opt_buf, &mut buf)?;
+        let n = rpc_client.req(
+            &mut header,
+            &self.body,
+            req_buf,
+            rep_buf,
+            Some(opt_buf),
+            &mut buf,
+        )?;
         self.chan_id = header.chan_id;
         Ok(n)
+    }
+}
+
+impl<R: Request, PB: OptBuf> RequestType<R, OptBufNo, PB> {
+    pub fn request(
+        &mut self,
+        req_buf: Option<&[u8]>,
+        rpc_client: &mut RpcClient,
+        rep_buf: Vec<u8>,
+        mut buf: &mut [u8],
+    ) -> Result<usize> {
+        let mut header = RequestHeader {
+            method_idx: R::METHOD_ID,
+            chan_id: 0,
+            opts: 0,
+            body_len: 0,
+            buf_len: 0,
+        };
+        let n = rpc_client.req(&mut header, &self.body, req_buf, rep_buf, None, &mut buf)?;
+        self.chan_id = header.chan_id;
+        Ok(n)
+    }
+}
+
+impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
+    pub fn reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Vec<u8>)>> {
+        match rpc_client.take_reply(self.chan_id) {
+            None => None,
+            Some((rep_header, rep_body_buf, opt_buf)) => {
+                match postcard::from_bytes(&rep_body_buf) {
+                    Ok(r) => Some(Ok((r, opt_buf.unwrap()))),
+                    Err(e) => Some(Err(e)),
+                }
+            }
+        }
+    }
+}
+
+impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
+    pub fn reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<R::P>> {
+        match rpc_client.take_reply(self.chan_id) {
+            None => None,
+            Some((rep_header, rep_body_buf, _opt_buf)) => {
+                match postcard::from_bytes(&rep_body_buf) {
+                    Ok(r) => Some(Ok(r)),
+                    Err(e) => Some(Err(e)),
+                }
+            }
+        }
     }
 }
 
@@ -75,33 +128,45 @@ enum State {
 enum ReplyState {
     // TODO: Use field name in enum like { rep_buf: Vec<u8>, ... }
     Empty,
-    Waiting(Vec<u8>, Option<Vec<u8>>),
+    Waiting {
+        rep_buf: Vec<u8>,
+        opt_buf: Option<Vec<u8>>,
+    },
     Receiving,
-    Complete(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
+    Complete {
+        rep_header: ReplyHeader,
+        rep_buf: Vec<u8>,
+        opt_buf: Option<Vec<u8>>,
+    },
 }
 
 impl ReplyState {
     fn take_waiting(&mut self) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
         match self {
-            ReplyState::Waiting(_, _) => (),
+            ReplyState::Waiting { .. } => (),
             _ => return None,
         }
         let mut reply = ReplyState::Receiving;
         swap(&mut reply, self);
-        if let ReplyState::Waiting(rep_buf, opt_buf) = reply {
+        if let ReplyState::Waiting { rep_buf, opt_buf } = reply {
             return Some((rep_buf, opt_buf));
         }
         unreachable!();
     }
     fn take_complete(&mut self) -> Option<(ReplyHeader, Vec<u8>, Option<Vec<u8>>)> {
         match self {
-            ReplyState::Complete(_, _, _) => (),
+            ReplyState::Complete { .. } => (),
             _ => return None,
         }
         let mut reply = ReplyState::Empty;
         swap(&mut reply, self);
-        if let ReplyState::Complete(header, rep_buf, opt_buf) = reply {
-            return Some((header, rep_buf, opt_buf));
+        if let ReplyState::Complete {
+            rep_header,
+            rep_buf,
+            opt_buf,
+        } = reply
+        {
+            return Some((rep_header, rep_buf, opt_buf));
         }
         unreachable!();
     }
@@ -110,53 +175,16 @@ impl ReplyState {
 pub struct RpcClient {
     chan_id: u8,
     state: State,
-    // pub replies: Vec<Option<(ReplyHeader, Vec<u8>, Option<Vec<u8>>)>>,
-    replies: [ReplyState; 256],
-}
-
-// https://stackoverflow.com/a/36259524
-macro_rules! array {
-    (@accum (0, $($_es:expr),*) -> ($($body:tt)*))
-        => {array!(@as_expr [$($body)*])};
-    (@accum (1, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (0, $($es),*) -> ($($body)* $($es,)*))};
-    (@accum (2, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (0, $($es),*) -> ($($body)* $($es,)* $($es,)*))};
-    (@accum (3, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (2, $($es),*) -> ($($body)* $($es,)*))};
-    (@accum (4, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (2, $($es,)* $($es),*) -> ($($body)*))};
-    (@accum (5, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (4, $($es),*) -> ($($body)* $($es,)*))};
-    (@accum (6, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (4, $($es),*) -> ($($body)* $($es,)* $($es,)*))};
-    (@accum (7, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (4, $($es),*) -> ($($body)* $($es,)* $($es,)* $($es,)*))};
-    (@accum (8, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (4, $($es,)* $($es),*) -> ($($body)*))};
-    (@accum (16, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (8, $($es,)* $($es),*) -> ($($body)*))};
-    (@accum (32, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (16, $($es,)* $($es),*) -> ($($body)*))};
-    (@accum (64, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (32, $($es,)* $($es),*) -> ($($body)*))};
-    (@accum (128, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (64, $($es,)* $($es),*) -> ($($body)*))};
-    (@accum (256, $($es:expr),*) -> ($($body:tt)*))
-        => {array!(@accum (128, $($es,)* $($es),*) -> ($($body)*))};
-
-    (@as_expr $e:expr) => {$e};
-
-    [$e:expr; $n:tt] => { array!(@accum ($n, $e) -> ()) };
+    replies: Vec<ReplyState>,
 }
 
 impl RpcClient {
     pub fn new() -> Self {
+        let replies = (0..256).map(|_| ReplyState::Empty).collect();
         RpcClient {
             chan_id: 0,
             state: State::RecvHeader,
-            // TODO: Use a vector here for my own sanity
-            replies: array![ReplyState::Empty; 256],
+            replies,
         }
     }
 
@@ -177,11 +205,11 @@ impl RpcClient {
             // TODO: Handle this error properly
             ReplyState::Receiving => panic!("Reply at chan_id is at receiving state"),
             // TODO: Handle this error properly
-            ReplyState::Waiting(_, _) => panic!("Reply at chan_id is at waiting state"),
+            ReplyState::Waiting { .. } => panic!("Reply at chan_id is at waiting state"),
             // TODO: Handle this error properly
-            ReplyState::Complete(_, _, _) => panic!("Reply at chan_id is at complete state"),
+            ReplyState::Complete { .. } => panic!("Reply at chan_id is at complete state"),
         }
-        self.replies[header.chan_id as usize] = ReplyState::Waiting(rep_buf, opt_buf);
+        self.replies[header.chan_id as usize] = ReplyState::Waiting { rep_buf, opt_buf };
         self.chan_id += 1;
         if let Some(req_buf) = req_buf {
             header.buf_len = req_buf.len() as u16;
@@ -206,14 +234,14 @@ impl RpcClient {
                                 // TODO: Handle this error properly
                                 ReplyState::Empty => panic!("Unexpected reply at chan_id"),
                                 // TODO: Handle this error properly
-                                ReplyState::Complete(_, _, _) => {
+                                ReplyState::Complete { .. } => {
                                     panic!("Reply at chan_id is at complete state")
                                 }
                                 // TODO: Handle this error properly
                                 ReplyState::Receiving => {
                                     panic!("Reply at chan_id is at receiving state")
                                 }
-                                ReplyState::Waiting(_, _) => unreachable!(),
+                                ReplyState::Waiting { .. } => unreachable!(),
                             }
                         }
                         Some((rep_buf, opt_buf)) => {
@@ -248,8 +276,11 @@ impl RpcClient {
                 }
                 State::Reply(rep_header, rep_buf, opt_buf) => {
                     let chan_id = rep_header.chan_id;
-                    self.replies[chan_id as usize] =
-                        ReplyState::Complete(rep_header, rep_buf, opt_buf);
+                    self.replies[chan_id as usize] = ReplyState::Complete {
+                        rep_header,
+                        rep_buf,
+                        opt_buf,
+                    };
                     self.state = State::RecvHeader;
                     return Ok((REP_HEADER_LEN, Some(chan_id)));
                 }

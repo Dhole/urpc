@@ -1,12 +1,15 @@
 #[macro_use]
 extern crate urpc;
 
-use urpc::{client, consts, server};
+use urpc::{client, client::OptBufNo, client::OptBufYes, consts, server};
 
 use hex;
 
-client_request!(0, ClientRequestPing([u8; 4], [u8; 4]));
-client_request!(1, ClientRequestSendBytes((), ()));
+client_request! {
+    client_requests;
+    (0, ClientRequestPing([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
+    (1, ClientRequestSendBytes((), OptBufYes, (), OptBufNo))
+}
 
 server_requests! {
     ServerRequest;
@@ -25,15 +28,9 @@ fn main() -> () {
     //let mut req = client::RequestType::<ClientRequestSendBytes>::new(());
     //req.request(Some(&req_buf), &mut rpc_client, &mut read_buf);
 
-    let mut req = client::RequestType::<ClientRequestPing>::new([0, 1, 2, 3]);
-    req.request(
-        None,
-        &mut rpc_client,
-        vec![0; buf_len],
-        Some(vec![0; buf_len]),
-        &mut read_buf,
-    )
-    .unwrap();
+    let mut req = ClientRequestPing::new([0, 1, 2, 3]);
+    req.request(None, &mut rpc_client, vec![0; buf_len], &mut read_buf)
+        .unwrap();
 
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
