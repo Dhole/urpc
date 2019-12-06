@@ -5,7 +5,7 @@ use urpc::{client, client::OptBufNo, client::OptBufYes, consts, server};
 
 use hex;
 
-client_request! {
+client_requests! {
     client_requests;
     (0, ClientRequestPing([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
     (1, ClientRequestSendBytes((), OptBufYes, (), OptBufNo))
@@ -24,13 +24,13 @@ fn main() -> () {
 
     let mut rpc_client = client::RpcClient::new();
 
-    //let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    //let mut req = client::RequestType::<ClientRequestSendBytes>::new(());
-    //req.request(Some(&req_buf), &mut rpc_client, &mut read_buf);
+    let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    let mut req = ClientRequestSendBytes::new(());
+    req.request(&req_buf, &mut rpc_client, vec![0; buf_len], &mut read_buf);
 
-    let mut req = ClientRequestPing::new([0, 1, 2, 3]);
-    req.request(&mut rpc_client, vec![0; buf_len], &mut read_buf)
-        .unwrap();
+    // let mut req = ClientRequestPing::new([0, 1, 2, 3]);
+    // req.request(&mut rpc_client, vec![0; buf_len], &mut read_buf)
+    //     .unwrap();
 
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
@@ -71,7 +71,7 @@ fn main() -> () {
         println!("pos: {}, buf: {}", pos, hex::encode(buf));
         pos += read_len;
         read_len = rpc_client.parse(&buf).unwrap().0;
-        match req.reply(&mut rpc_client) {
+        match req.take_reply(&mut rpc_client) {
             Some(r) => {
                 println!("reply: {:?}", r.unwrap());
                 break;

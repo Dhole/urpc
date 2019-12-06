@@ -26,7 +26,7 @@ macro_rules! client_request_export {
 */
 
 #[macro_export(local_inner_macros)]
-macro_rules! client_request {
+macro_rules! client_requests {
     ($request_mod:ident;
         $( ($id:expr, $method:ident ( $req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
             mod $request_mod {
@@ -64,13 +64,13 @@ macro_rules! server_requests {
         impl server::Request for $request_enum {
             type R = Self;
 
-            fn from_bytes(header: $crate::RequestHeader, buf: &[u8]) -> $crate::Result<Self> {
+            fn from_bytes(header: $crate::RequestHeader, buf: &[u8]) -> $crate::server::Result<Self> {
                 Ok(match header.method_idx {
                     $(
                         $id => $request_enum::$method($crate::server::RequestType::from_bytes(header, buf)?),
                     )*
                     _ => {
-                        return Err($crate::Error::WontImplement);
+                        return Err($crate::server::Error::WontImplement);
                     }
                 })
             }

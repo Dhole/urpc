@@ -1,11 +1,34 @@
 use super::consts::*;
 use super::*;
 
+use core;
+use core::convert;
 use core::marker::PhantomData;
 use core::mem::swap;
 
 use postcard;
 use serde::{de::DeserializeOwned, Serialize};
+
+#[derive(Debug)]
+pub enum Error {
+    SerializeDeserialize(postcard::Error),
+    ReplySlotEmpty,
+    ReplySlotWaiting,
+    ReplySlotComplete,
+    ReplySlotReceiving,
+    ReplySlotOptBufMissing,
+    ReplyBodyTooLong,
+    ReplyOptBufTooLong,
+    ReplyOptBufUnexpected,
+}
+
+pub type Result<T> = core::result::Result<T, Error>;
+
+impl convert::From<postcard::Error> for Error {
+    fn from(error: postcard::Error) -> Self {
+        Self::SerializeDeserialize(error)
+    }
+}
 
 pub trait Request {
     type Q: Serialize;
@@ -146,28 +169,24 @@ impl<R: Request> RequestType<R, OptBufYes, OptBufYes> {
 }
 
 impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
-    pub fn reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Vec<u8>)>> {
+    pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Vec<u8>)>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
-            Some((rep_header, rep_body_buf, opt_buf)) => {
-                match postcard::from_bytes(&rep_body_buf) {
-                    Ok(r) => Some(Ok((r, opt_buf.unwrap()))),
-                    Err(e) => Some(Err(e)),
-                }
-            }
+            Some((rep_header, rep_body_buf, opt_buf)) => Some(
+                postcard::from_bytes(&rep_body_buf)
+                    .map(|r| (r, opt_buf.unwrap()))
+                    .map_err(|e| e.into()),
+            ),
         }
     }
 }
 
 impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
-    pub fn reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<R::P>> {
+    pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<R::P>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
             Some((rep_header, rep_body_buf, _opt_buf)) => {
-                match postcard::from_bytes(&rep_body_buf) {
-                    Ok(r) => Some(Ok(r)),
-                    Err(e) => Some(Err(e)),
-                }
+                Some(postcard::from_bytes(&rep_body_buf).map_err(|e| e.into()))
             }
         }
     }
@@ -181,7 +200,6 @@ enum State {
 }
 
 enum ReplyState {
-    // TODO: Use field name in enum like { rep_body_buf: Vec<u8>, ... }
     Empty,
     Waiting {
         rep_body_buf: Vec<u8>,
@@ -234,45 +252,48 @@ impl ReplyState {
 pub struct RpcClient {
     chan_id: u8,
     state: State,
-    replies: Vec<ReplyState>,
+    reply_slots: Vec<ReplyState>,
 }
 
 impl RpcClient {
     pub fn new() -> Self {
-        let replies = (0..256).map(|_| ReplyState::Empty).collect();
+        let reply_slots = (0..256).map(|_| ReplyState::Empty).collect();
         RpcClient {
             chan_id: 0,
             state: State::RecvHeader,
-            replies,
+            reply_slots,
         }
     }
 
+    // Serialize a request packet built from (header, body, req_body_buf) into buf.  Prepare a
+    // reply slot with (rep_body_buf, rep_opt_buf).
     pub fn req<S: Serialize>(
         &mut self,
         header: &mut RequestHeader,
         body: &S,
         req_body_buf: Option<&[u8]>,
         rep_body_buf: Vec<u8>,
-        opt_buf: Option<Vec<u8>>,
+        rep_opt_buf: Option<Vec<u8>>,
         mut buf: &mut [u8],
     ) -> Result<usize> {
         let body_buf = postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?;
         header.body_len = body_buf.len() as u16;
         header.chan_id = self.chan_id;
-        match self.replies[header.chan_id as usize] {
+        // Make sure that the reply slot for this channel is not busy.
+        match self.reply_slots[header.chan_id as usize] {
             ReplyState::Empty => (),
-            // TODO: Handle this error properly
-            ReplyState::Receiving => panic!("Reply at chan_id is at receiving state"),
-            // TODO: Handle this error properly
-            ReplyState::Waiting { .. } => panic!("Reply at chan_id is at waiting state"),
-            // TODO: Handle this error properly
-            ReplyState::Complete { .. } => panic!("Reply at chan_id is at complete state"),
+            ReplyState::Receiving => return Err(Error::ReplySlotReceiving),
+            ReplyState::Waiting { .. } => return Err(Error::ReplySlotWaiting),
+            ReplyState::Complete { .. } => return Err(Error::ReplySlotComplete),
         }
-        self.replies[header.chan_id as usize] = ReplyState::Waiting {
+        // Set the reply slot for this channel as waiting with the buffers to store the reply.
+        self.reply_slots[header.chan_id as usize] = ReplyState::Waiting {
             rep_body_buf,
-            opt_buf,
+            opt_buf: rep_opt_buf,
         };
+        // TODO: Use channels id's wisely
         self.chan_id += 1;
+        // Serialize the request (with the optional buffer)
         if let Some(req_body_buf) = req_body_buf {
             header.buf_len = req_body_buf.len() as u16;
             buf[REQ_HEADER_LEN + header.body_len as usize
@@ -283,36 +304,61 @@ impl RpcClient {
         Ok(REQ_HEADER_LEN + header.body_len as usize + header.buf_len as usize)
     }
 
+    // Parse an received buffer in order to advance the deserialization of a reply.  Returns the
+    // number of bytes needed to keep advancing, and optionally the channel number of the completed
+    // deserialized reply.
     pub fn parse(&mut self, rcv_buf: &[u8]) -> Result<(usize, Option<u8>)> {
         loop {
             let mut state = State::RecvHeader;
             swap(&mut state, &mut self.state);
             match state {
+                // Initial state: waiting for the header bytes
                 State::RecvHeader => {
-                    let rep_header = rep_header_from_bytes(&rcv_buf).unwrap();
-                    match self.replies[rep_header.chan_id as usize].take_waiting() {
-                        None => {
-                            match self.replies[rep_header.chan_id as usize] {
-                                // TODO: Handle this error properly
-                                ReplyState::Empty => panic!("Unexpected reply at chan_id"),
-                                // TODO: Handle this error properly
-                                ReplyState::Complete { .. } => {
-                                    panic!("Reply at chan_id is at complete state")
-                                }
-                                // TODO: Handle this error properly
-                                ReplyState::Receiving => {
-                                    panic!("Reply at chan_id is at receiving state")
-                                }
-                                ReplyState::Waiting { .. } => unreachable!(),
-                            }
-                        }
+                    let rep_header = rep_header_from_bytes(&rcv_buf)?;
+                    match self.reply_slots[rep_header.chan_id as usize].take_waiting() {
+                        // Check that there's a valid reply slot for this reply.
+                        None => match self.reply_slots[rep_header.chan_id as usize] {
+                            ReplyState::Empty => return Err(Error::ReplySlotEmpty),
+                            ReplyState::Complete { .. } => return Err(Error::ReplySlotComplete),
+                            ReplyState::Receiving => return Err(Error::ReplySlotReceiving),
+                            ReplyState::Waiting { .. } => unreachable!(),
+                        },
                         Some((rep_body_buf, opt_buf)) => {
+                            // Check that the body buffer will fit in the reply slot.
+                            if rep_header.body_len as usize > rep_body_buf.len() {
+                                return Err(Error::ReplyBodyTooLong);
+                            }
+                            // Check that the optional buffer length in the reply header is
+                            // compatible with the reply slot that the requester stored.
+                            match &opt_buf {
+                                None => {
+                                    if rep_header.buf_len > 0 {
+                                        return Err(Error::ReplyOptBufUnexpected);
+                                    }
+                                }
+                                Some(b) => {
+                                    if rep_header.buf_len as usize > b.len() {
+                                        return Err(Error::ReplyOptBufTooLong);
+                                    }
+                                }
+                            }
                             let n = rep_header.body_len as usize;
-                            self.state = State::RecvBody(rep_header, rep_body_buf, opt_buf);
-                            return Ok((n, None));
+                            if n == 0 {
+                                if rep_header.buf_len == 0 {
+                                    self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
+                                } else {
+                                    let n = rep_header.buf_len as usize;
+                                    self.state = State::RecvBuf(rep_header, rep_body_buf, opt_buf);
+                                    return Ok((n, None));
+                                }
+                            } else {
+                                self.state = State::RecvBody(rep_header, rep_body_buf, opt_buf);
+                                return Ok((n, None));
+                            }
                         }
                     }
                 }
+                // Received body bytes
                 State::RecvBody(rep_header, mut rep_body_buf, opt_buf) => {
                     let rep_header_buf_len = rep_header.buf_len;
                     rep_body_buf[..rcv_buf.len()].copy_from_slice(rcv_buf);
@@ -324,21 +370,20 @@ impl RpcClient {
                         return Ok((n, None));
                     }
                 }
+                // Received optional buffer bytes
                 State::RecvBuf(rep_header, rep_body_buf, mut opt_buf) => {
                     match &mut opt_buf {
                         Some(buf) => {
                             buf[..rcv_buf.len()].copy_from_slice(rcv_buf);
                         }
-                        None => {
-                            // TODO: Handle this error properly
-                            panic!("Optional buffer expected but none provided");
-                        }
+                        None => return Err(Error::ReplySlotOptBufMissing),
                     }
                     self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
                 }
+                // Received all the bytes necessary to build the complete reply
                 State::Reply(rep_header, rep_body_buf, opt_buf) => {
                     let chan_id = rep_header.chan_id;
-                    self.replies[chan_id as usize] = ReplyState::Complete {
+                    self.reply_slots[chan_id as usize] = ReplyState::Complete {
                         rep_header,
                         rep_body_buf,
                         opt_buf,
@@ -350,7 +395,8 @@ impl RpcClient {
         }
     }
 
+    // Take the reply of the slot in a channel id if it's complete.
     pub fn take_reply(&mut self, chan_id: u8) -> Option<(ReplyHeader, Vec<u8>, Option<Vec<u8>>)> {
-        self.replies[chan_id as usize].take_complete()
+        self.reply_slots[chan_id as usize].take_complete()
     }
 }

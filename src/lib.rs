@@ -18,8 +18,8 @@ use serde::{Deserialize, Serialize};
 //     Busy,
 // }
 
-pub type Result<T> = postcard::Result<T>;
-pub type Error = postcard::Error;
+// pub type Result<T> = postcard::Result<T>;
+// pub type Error = postcard::Error;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Opts {
@@ -51,10 +51,10 @@ pub struct ReplyHeader {
 //     Data,
 // }
 
-pub fn req_header_from_bytes(buf: &[u8]) -> Result<RequestHeader> {
+pub fn req_header_from_bytes(buf: &[u8]) -> Result<RequestHeader, postcard::Error> {
     from_bytes(buf)
 }
 
-pub fn rep_header_from_bytes(buf: &[u8]) -> Result<ReplyHeader> {
+pub fn rep_header_from_bytes(buf: &[u8]) -> Result<ReplyHeader, postcard::Error> {
     from_bytes(buf)
 }

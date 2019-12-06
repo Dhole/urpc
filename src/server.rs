@@ -7,6 +7,10 @@ use core::mem::swap;
 use postcard;
 use serde::{de::DeserializeOwned, Serialize};
 
+// TODO Use custom Error
+pub type Result<T> = postcard::Result<T>;
+pub type Error = postcard::Error;
+
 #[derive(Debug)]
 pub struct RequestType<Q: DeserializeOwned, P: Serialize> {
     chan_id: u8,
@@ -92,9 +96,22 @@ impl<R: Request> RpcServer<R> {
                         // TODO: Make custom error
                         return Err(postcard::Error::WontImplement);
                     }
-                    let ret = ParseResult::NeedBytes(req_header.body_len as usize);
-                    self.state = State::RecvBody(req_header);
-                    return Ok(ret);
+                    let req_header_body_len = req_header.body_len;
+                    let req_header_buf_len = req_header.buf_len;
+                    if req_header_body_len == 0 {
+                        let req = R::from_bytes(req_header, &[]);
+                        if req_header_buf_len == 0 {
+                            self.state = State::Request(req);
+                        } else {
+                            let ret = ParseResult::NeedBytes(req_header_buf_len as usize);
+                            self.state = State::RecvBuf(req);
+                            return Ok(ret);
+                        }
+                    } else {
+                        let ret = ParseResult::NeedBytes(req_header.body_len as usize);
+                        self.state = State::RecvBody(req_header);
+                        return Ok(ret);
+                    }
                 }
                 State::RecvBody(req_header) => {
                     let req_header_buf_len = req_header.buf_len;
