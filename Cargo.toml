@@ -1,8 +1,13 @@
 [package]
 name = "urpc"
-version = "0.1.0"
+version = "0.1.0-alpha"
 authors = ["Dhole <dhole@riseup.net>"]
 edition = "2018"
+descripion = "uRPC (pronounced micro RPC) is a simple and lightweight RPC framework designed with embedded systems in mind."
+license = "BSD-3-Clause"
+readme = "README.md"
+keywords = ["rpc", "embedded", "no_std"]
+categories = ["embedded", "no-std"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

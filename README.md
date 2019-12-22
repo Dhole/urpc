@@ -35,3 +35,7 @@ TODO: Specify packet format here.
 ## Examples
 
 See [examples/requests.rs](requests.rs)
+
+## License
+
+The code is released under the 3-clause BSD License.

@@ -4,7 +4,7 @@ use super::*;
 use core;
 use core::convert;
 use core::marker::PhantomData;
-use core::mem::swap;
+use core::mem::{self, swap};
 
 use postcard;
 use serde::{de::DeserializeOwned, Serialize};
@@ -220,33 +220,27 @@ impl ReplyState {
             ReplyState::Waiting { .. } => (),
             _ => return None,
         }
-        let mut reply = ReplyState::Receiving;
-        swap(&mut reply, self);
-        if let ReplyState::Waiting {
-            rep_body_buf,
-            opt_buf,
-        } = reply
-        {
-            return Some((rep_body_buf, opt_buf));
+        match mem::replace(self, ReplyState::Receiving) {
+            ReplyState::Waiting {
+                rep_body_buf,
+                opt_buf,
+            } => Some((rep_body_buf, opt_buf)),
+            _ => None,
         }
-        unreachable!();
     }
     fn take_complete(&mut self) -> Option<(ReplyHeader, Vec<u8>, Option<Vec<u8>>)> {
         match self {
             ReplyState::Complete { .. } => (),
             _ => return None,
         }
-        let mut reply = ReplyState::Empty;
-        swap(&mut reply, self);
-        if let ReplyState::Complete {
-            rep_header,
-            rep_body_buf,
-            opt_buf,
-        } = reply
-        {
-            return Some((rep_header, rep_body_buf, opt_buf));
+        match mem::replace(self, ReplyState::Empty) {
+            ReplyState::Complete {
+                rep_header,
+                rep_body_buf,
+                opt_buf,
+            } => Some((rep_header, rep_body_buf, opt_buf)),
+            _ => None,
         }
-        unreachable!();
     }
 }
 
