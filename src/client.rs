@@ -38,6 +38,7 @@ pub trait Request {
 
 // enum RequestState {}
 
+/// Type used to build a Request for a particular RPC Call.
 #[derive(Debug)]
 pub struct RequestType<R: Request, QB: OptBuf, PB: OptBuf> {
     chan_id: u8,
@@ -46,10 +47,14 @@ pub struct RequestType<R: Request, QB: OptBuf, PB: OptBuf> {
     // state: RequestState,
 }
 
+/// Trait used to allow building RPC calls with optional buffer.
 pub trait OptBuf {}
 
+/// Indicate that the RPC Call contains an optional buffer.
 pub struct OptBufYes {}
 impl OptBuf for OptBufYes {}
+
+/// Indicate that the RPC Call doesn't contain an optional buffer.
 pub struct OptBufNo {}
 impl OptBuf for OptBufNo {}
 
@@ -64,6 +69,7 @@ impl<R: Request, QB: OptBuf, PB: OptBuf> RequestType<R, QB, PB> {
 }
 
 impl<R: Request> RequestType<R, OptBufNo, OptBufNo> {
+    /// Build a request and serialize it into buf.
     pub fn request(
         &mut self,
         rpc_client: &mut RpcClient,
@@ -84,6 +90,7 @@ impl<R: Request> RequestType<R, OptBufNo, OptBufNo> {
 }
 
 impl<R: Request> RequestType<R, OptBufNo, OptBufYes> {
+    /// Build a request and serialize it into buf.
     pub fn request(
         &mut self,
         rpc_client: &mut RpcClient,
@@ -112,6 +119,7 @@ impl<R: Request> RequestType<R, OptBufNo, OptBufYes> {
 }
 
 impl<R: Request> RequestType<R, OptBufYes, OptBufNo> {
+    /// Build a request and serialize it into buf.
     pub fn request(
         &mut self,
         req_body_buf: &[u8],
@@ -140,6 +148,7 @@ impl<R: Request> RequestType<R, OptBufYes, OptBufNo> {
 }
 
 impl<R: Request> RequestType<R, OptBufYes, OptBufYes> {
+    /// Build a request and serialize it into buf.
     pub fn request(
         &mut self,
         req_body_buf: &[u8],
@@ -169,6 +178,8 @@ impl<R: Request> RequestType<R, OptBufYes, OptBufYes> {
 }
 
 impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
+    /// Try to take the reply for this request from the RPC Client.  If no such reply exists,
+    /// returns None.
     pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Vec<u8>)>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
@@ -182,6 +193,8 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
 }
 
 impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
+    /// Try to take the reply for this request from the RPC Client.  If no such reply exists,
+    /// returns None.
     pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<R::P>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
@@ -200,6 +213,7 @@ enum State {
     Reply(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
 }
 
+#[derive(Debug)]
 enum ReplyState {
     Empty,
     Waiting {
@@ -244,6 +258,8 @@ impl ReplyState {
     }
 }
 
+/// Main component of the RPC Client.  The client keeps the state of the parsed bytes and stores
+/// replies that requests can retreive later.
 pub struct RpcClient {
     chan_id: u8,
     state: State,
@@ -251,6 +267,7 @@ pub struct RpcClient {
 }
 
 impl RpcClient {
+    /// Create a new RPC Client.
     pub fn new() -> Self {
         let reply_slots = (0..256).map(|_| ReplyState::Empty).collect();
         RpcClient {
@@ -260,8 +277,9 @@ impl RpcClient {
         }
     }
 
-    // Serialize a request packet built from (header, body, req_body_buf) into buf.  Prepare a
-    // reply slot with (rep_body_buf, rep_opt_buf).
+    /// Serialize a request packet built from (`header`, `body`, `req_body_buf`) into `buf`.
+    /// Prepare a reply slot with (`rep_body_buf`, `rep_opt_buf`).  Returns the number of bytes
+    /// written to `buf`.
     pub fn req<S: Serialize>(
         &mut self,
         header: &mut RequestHeader,
@@ -287,7 +305,7 @@ impl RpcClient {
             opt_buf: rep_opt_buf,
         };
         // TODO: Use channels id's wisely
-        self.chan_id += 1;
+        // self.chan_id += 1;
         // Serialize the request (with the optional buffer)
         if let Some(req_body_buf) = req_body_buf {
             header.buf_len = req_body_buf.len() as u16;
@@ -299,9 +317,9 @@ impl RpcClient {
         Ok(REQ_HEADER_LEN + header.body_len as usize + header.buf_len as usize)
     }
 
-    // Parse an received buffer in order to advance the deserialization of a reply.  Returns the
-    // number of bytes needed to keep advancing, and optionally the channel number of the completed
-    // deserialized reply.
+    /// Parse an received buffer in order to advance the deserialization of a reply.  Returns the
+    /// number of bytes needed to keep advancing, and optionally the channel number of the completed
+    /// deserialized reply.
     pub fn parse(&mut self, rcv_buf: &[u8]) -> Result<(usize, Option<u8>)> {
         loop {
             let mut state = State::WaitHeader;
@@ -387,7 +405,7 @@ impl RpcClient {
         }
     }
 
-    // Take the reply of the slot in a channel id if it's complete.
+    /// Take the reply of the slot in a channel id if it's complete.
     pub fn take_reply(&mut self, chan_id: u8) -> Option<(ReplyHeader, Vec<u8>, Option<Vec<u8>>)> {
         self.reply_slots[chan_id as usize].take_complete()
     }

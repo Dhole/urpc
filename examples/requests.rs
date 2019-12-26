@@ -24,19 +24,20 @@ fn main() -> () {
 
     let mut rpc_client = client::RpcClient::new();
 
-    let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-    let mut req = ClientRequestSendBytes::new(());
-    req.request(&req_buf, &mut rpc_client, vec![0; buf_len], &mut read_buf);
+    // let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+    // let mut req = ClientRequestSendBytes::new(());
+    // req.request(&req_buf, &mut rpc_client, vec![0; buf_len], &mut read_buf);
 
-    // let mut req = ClientRequestPing::new([0, 1, 2, 3]);
-    // req.request(&mut rpc_client, vec![0; buf_len], &mut read_buf)
-    //     .unwrap();
+    let mut req = ClientRequestPing::new([0, 1, 2, 3]);
+    req.request(&mut rpc_client, vec![0; buf_len], &mut read_buf)
+        .unwrap();
 
     println!("{}, {}", read_buf.len(), hex::encode(&read_buf));
 
     let mut rpc_server = server::RpcServer::<ServerRequest>::new(buf_len as u16);
     let mut pos = 0;
     let mut read_len = consts::REQ_HEADER_LEN;
+    let mut write_buf_len = 0;
     loop {
         let buf = &read_buf[pos..pos + read_len];
         println!("pos: {}, buf: {}", pos, hex::encode(buf));
@@ -51,18 +52,22 @@ fn main() -> () {
                 match req.unwrap() {
                     ServerRequest::Ping(ping) => {
                         let ping_body = ping.body;
-                        ping.reply(ping_body, &mut write_buf).unwrap();
+                        write_buf_len = ping.reply(ping_body, &mut write_buf).unwrap();
                     }
                     ServerRequest::SendBytes(send_bytes) => {
                         println!("send_bytes: {}", hex::encode(opt_buf.unwrap()));
-                        send_bytes.reply((), &mut write_buf).unwrap();
+                        write_buf_len = send_bytes.reply((), &mut write_buf).unwrap();
                     }
                 }
                 break;
             }
         }
     }
-    println!("{}, {}", write_buf.len(), hex::encode(&write_buf));
+    println!(
+        "{}, {}",
+        write_buf_len,
+        hex::encode(&write_buf[..write_buf_len])
+    );
 
     let mut pos = 0;
     let mut read_len = consts::REP_HEADER_LEN;

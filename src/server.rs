@@ -11,6 +11,7 @@ use serde::{de::DeserializeOwned, Serialize};
 pub type Result<T> = postcard::Result<T>;
 pub type Error = postcard::Error;
 
+/// Type used to handle a Requesat for a particular RPC Call.
 #[derive(Debug)]
 pub struct RequestType<Q: DeserializeOwned, P: Serialize> {
     chan_id: u8,
@@ -19,6 +20,7 @@ pub struct RequestType<Q: DeserializeOwned, P: Serialize> {
 }
 
 impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
+    /// Deserialize the body of a Request.
     pub fn from_bytes(header: RequestHeader, buf: &[u8]) -> Result<Self> {
         Ok(Self {
             chan_id: header.chan_id,
@@ -26,6 +28,8 @@ impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
             phantom: PhantomData::<P>,
         })
     }
+    /// Serialize a reply packet build from a payload.  Returns the number of bytes written to
+    /// `reply_buf`.
     pub fn reply(self, payload: P, mut reply_buf: &mut [u8]) -> Result<usize> {
         let body_buf = postcard::to_slice(&payload, &mut reply_buf[REP_HEADER_LEN..])?;
         let header = ReplyHeader {
@@ -37,6 +41,7 @@ impl<Q: DeserializeOwned, P: Serialize> RequestType<Q, P> {
         postcard::to_slice(&header, &mut reply_buf)?;
         Ok(REP_HEADER_LEN + header.body_len as usize + header.buf_len as usize)
     }
+    /// Serialize an error reply packet.  Returns the number of bytes written to `reply_buf`.
     pub fn reply_err(self, err: u8, mut reply_buf: &mut [u8]) -> Result<usize> {
         let header = ReplyHeader {
             chan_id: self.chan_id,
@@ -57,17 +62,21 @@ enum State<R> {
     Request(Result<R>),
 }
 
+/// Result of parsing some bytes by the RPC Server.
 pub enum ParseResult<'a, R> {
     NeedBytes(usize),
     Request(Result<R>, Option<&'a [u8]>),
 }
 
+/// RPC Call request.
 pub trait Request {
     type R;
 
     fn from_bytes(header: RequestHeader, buf: &[u8]) -> Result<Self::R>;
 }
 
+/// Main component of the RPC Server.  The server keeps the state of the parsed bytes and outputs
+/// the requests once they are received.
 pub struct RpcServer<R: Request> {
     max_buf_len: u16,
     state: State<R::R>,
@@ -81,6 +90,8 @@ impl<R: Request> RpcServer<R> {
         }
     }
 
+    /// Parse incoming bytes and return wether a request has been received, or more bytes are
+    /// needed to build a complete request.
     pub fn parse<'a>(&mut self, rcv_buf: &'a [u8]) -> Result<ParseResult<'a, R::R>> {
         let mut opt_buf: Option<&'a [u8]> = None;
         loop {

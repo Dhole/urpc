@@ -1,9 +1,13 @@
 # uRPC
 
-uRPC (pronounced micro RPC) is a simple and lightweight RPC framework designed
-with embedded systems in mind.  The server side should work in a heapless
-environment with `no_std` and is supposed to use very low resources.  The
-current client side implementation requires `std`
+> uRPC (pronounced micro RPC) is a simple and lightweight RPC framework designed
+> with embedded systems in mind.  The server side works in a heapless
+> environment with `no_std` and is supposed to use very low resources.  The
+> current client side implementation requires `std`.
+
+[![crates.io](https://img.shields.io/crates/v/urpc.svg)](https://crates.io/crates/urpc)
+[![crates.io](https://img.shields.io/crates/d/urpc.svg)](https://crates.io/crates/urpc)
+[![Released API docs](https://docs.rs/urpc/badge.svg)](https://docs.rs/urpc)
 
 ## Features
 
@@ -30,7 +34,24 @@ current client side implementation requires `std`
 - The reply packet consists of a 6 byte header, an optional body and an
   optional byte buffer.
 
-TODO: Specify packet format here.
+### Request Header
+
+length | desc
+-------|-----
+8b | method index
+8b | channel id
+8b | options
+16b | body length (little endian)
+16b | optional buffer length (little endian)
+
+### Reply Header
+
+length | desc
+-------|-----
+8b | channel id
+8b | options
+16b | body length (little endian)
+16b | optional buffer length (little endian)
 
 ## Examples
 
