@@ -17,9 +17,11 @@ pub enum Error {
     ReplySlotComplete,
     ReplySlotReceiving,
     ReplySlotOptBufMissing,
+    ReceivedBufTooShort,
     ReplyBodyTooLong,
     ReplyOptBufTooLong,
     ReplyOptBufUnexpected,
+    BufLenNotZero,
 }
 
 pub type Result<T> = core::result::Result<T, Error>;
@@ -209,7 +211,7 @@ enum State {
     WaitHeader,
     WaitBody(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
     RecvdBody(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
-    WaitBuf(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
+    WaitBuf(ReplyHeader, Vec<u8>, Vec<u8>),
     Reply(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
 }
 
@@ -271,7 +273,7 @@ impl RpcClient {
     pub fn new() -> Self {
         let reply_slots = (0..256).map(|_| ReplyState::Empty).collect();
         RpcClient {
-            chan_id: 0,
+            chan_id: 1, // Use 1 to avoid a successful parse of a zeroed buffer.
             state: State::WaitHeader,
             reply_slots,
         }
@@ -367,28 +369,36 @@ impl RpcClient {
                 }
                 // Received body bytes
                 State::WaitBody(rep_header, mut rep_body_buf, opt_buf) => {
-                    let rep_header_buf_len = rep_header.buf_len;
-                    rep_body_buf[..rcv_buf.len()].copy_from_slice(rcv_buf);
+                    let buf_len = rep_header.buf_len as usize;
+                    if rcv_buf.len() < buf_len {
+                        return Err(Error::ReceivedBufTooShort);
+                    }
+                    rep_body_buf[..buf_len].copy_from_slice(&rcv_buf[..buf_len]);
                     self.state = State::RecvdBody(rep_header, rep_body_buf, opt_buf);
                 }
                 State::RecvdBody(rep_header, mut rep_body_buf, opt_buf) => {
-                    if rep_header.buf_len == 0 {
-                        self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
-                    } else {
+                    if let Some(buf) = opt_buf {
                         let n = rep_header.buf_len as usize;
-                        self.state = State::WaitBuf(rep_header, rep_body_buf, opt_buf);
+                        self.state = State::WaitBuf(rep_header, rep_body_buf, buf);
                         return Ok((n, None));
+                    } else {
+                        if rep_header.buf_len != 0 {
+                            return Err(Error::BufLenNotZero);
+                        } else {
+                            self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
+                        }
                     }
                 }
                 // Received optional buffer bytes
-                State::WaitBuf(rep_header, rep_body_buf, mut opt_buf) => {
-                    match &mut opt_buf {
-                        Some(buf) => {
-                            buf[..rcv_buf.len()].copy_from_slice(rcv_buf);
-                        }
-                        None => return Err(Error::ReplySlotOptBufMissing),
+                State::WaitBuf(rep_header, rep_body_buf, mut buf) => {
+                    let buf_len = rep_header.buf_len as usize;
+                    println!("buf_len: {}", buf_len);
+                    if rcv_buf.len() < buf_len {
+                        return Err(Error::ReceivedBufTooShort);
                     }
-                    self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
+                    buf[..buf_len].copy_from_slice(&rcv_buf[..buf_len]);
+                    buf.truncate(buf_len);
+                    self.state = State::Reply(rep_header, rep_body_buf, Some(buf));
                 }
                 // Received all the bytes necessary to build the complete reply
                 State::Reply(rep_header, rep_body_buf, opt_buf) => {

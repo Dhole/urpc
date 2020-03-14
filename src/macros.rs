@@ -127,8 +127,8 @@ macro_rules! client_requests {
 ///
 /// server_requests! {
 ///     ServerRequest;
-///     (0, Ping([u8; 4], [u8; 4])),
-///     (1, SendBytes((), ()))
+///     (0, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
+///     (1, SendBytes((), OptBufYes, (), OptBufNo))
 /// }
 ///
 /// let mut rpc_server = server::RpcServer::<ServerRequest>::new(32);
@@ -179,7 +179,7 @@ macro_rules! client_requests {
 #[macro_export(local_inner_macros)]
 macro_rules! server_requests {
     ($request_enum:ident;
-     $( ($id: expr, $method:ident ($req_type:ty, $rep_type:ty)) ),*) => {
+     $( ($id: expr, $method:ident ($req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
         #[derive(Debug)]
         enum $request_enum {
             $(

@@ -11,7 +11,7 @@ use serde::{de::DeserializeOwned, Serialize};
 pub type Result<T> = postcard::Result<T>;
 pub type Error = postcard::Error;
 
-/// Type used to handle a Requesat for a particular RPC Call.
+/// Type used to handle a Request for a particular RPC Call.
 #[derive(Debug)]
 pub struct RequestType<Q: DeserializeOwned, P: Serialize> {
     chan_id: u8,
