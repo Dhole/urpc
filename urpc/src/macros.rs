@@ -52,7 +52,7 @@ macro_rules! client_request_export {
 /// // Read from the network into recv_buf
 /// // [...]
 /// // We fill recv_buf with some precalculated replies to simulate a server reply
-/// recv_buf[..6].copy_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+/// recv_buf[..6].copy_from_slice(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00]);
 ///
 /// // Parse read bytes with rpc_client and try to match replies from each request
 /// let mut pos = 0;
@@ -78,7 +78,7 @@ macro_rules! client_request_export {
 /// // Read from the network into recv_buf
 /// // [...]
 /// // We fill recv_buf with some precalculated replies to simulate a server reply
-/// recv_buf[..10].copy_from_slice(&[0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03]);
+/// recv_buf[..10].copy_from_slice(&[0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03]);
 ///
 /// // Parse read bytes with rpc_client and try to match replies from each request
 /// let mut pos = 0;
