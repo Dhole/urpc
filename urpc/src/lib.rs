@@ -122,3 +122,16 @@ fn req_header_from_bytes(buf: &[u8]) -> Result<RequestHeader, postcard::Error> {
 fn rep_header_from_bytes(buf: &[u8]) -> Result<ReplyHeader, postcard::Error> {
     from_bytes(buf)
 }
+
+/// Trait used to allow building RPC calls with optional buffer.
+pub trait OptBuf {}
+
+/// Indicate that the RPC Call contains an optional buffer.
+#[derive(Debug)]
+pub struct OptBufYes {}
+impl OptBuf for OptBufYes {}
+
+/// Indicate that the RPC Call doesn't contain an optional buffer.
+#[derive(Debug)]
+pub struct OptBufNo {}
+impl OptBuf for OptBufNo {}

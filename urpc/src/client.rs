@@ -49,17 +49,6 @@ pub struct RequestType<R: Request, QB: OptBuf, PB: OptBuf> {
     // state: RequestState,
 }
 
-/// Trait used to allow building RPC calls with optional buffer.
-pub trait OptBuf {}
-
-/// Indicate that the RPC Call contains an optional buffer.
-pub struct OptBufYes {}
-impl OptBuf for OptBufYes {}
-
-/// Indicate that the RPC Call doesn't contain an optional buffer.
-pub struct OptBufNo {}
-impl OptBuf for OptBufNo {}
-
 impl<R: Request, QB: OptBuf, PB: OptBuf> RequestType<R, QB, PB> {
     pub fn new(req: R::Q) -> Self {
         Self {
