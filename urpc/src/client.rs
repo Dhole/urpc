@@ -190,6 +190,7 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
             Some((rep_header, rep_body_buf, _opt_buf)) => {
+                // println!(">>> {:?}", rep_body_buf);
                 Some(postcard::from_bytes(&rep_body_buf).map_err(|e| e.into()))
             }
         }
@@ -199,9 +200,6 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
 enum State {
     WaitHeader,
     WaitBody(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
-    RecvdBody(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
-    WaitBuf(ReplyHeader, Vec<u8>, Vec<u8>),
-    Reply(ReplyHeader, Vec<u8>, Option<Vec<u8>>),
 }
 
 #[derive(Debug)]
@@ -300,18 +298,19 @@ impl RpcClient {
         // Serialize the request (with the optional buffer)
         if let Some(req_body_buf) = req_body_buf {
             header.buf_len = req_body_buf.len() as u16;
-            buf[REQ_HEADER_LEN + header.body_len as usize
-                ..REQ_HEADER_LEN + header.body_len as usize + req_body_buf.len()]
+            buf[REQ_HEADER_LEN + header.body_len()
+                ..REQ_HEADER_LEN + header.body_len() + req_body_buf.len()]
                 .copy_from_slice(&req_body_buf);
         }
         postcard::to_slice(&header, &mut buf)?;
-        Ok(REQ_HEADER_LEN + header.body_len as usize + header.buf_len as usize)
+        Ok(REQ_HEADER_LEN + header.body_len() + header.buf_len())
     }
 
     /// Parse an received buffer in order to advance the deserialization of a reply.  Returns the
     /// number of bytes needed to keep advancing, and optionally the channel number of the completed
     /// deserialized reply.
     pub fn parse(&mut self, rcv_buf: &[u8]) -> Result<(usize, Option<u8>)> {
+        let mut rcv_buf = rcv_buf;
         loop {
             let mut state = State::WaitHeader;
             swap(&mut state, &mut self.state);
@@ -329,26 +328,27 @@ impl RpcClient {
                         },
                         Some((rep_body_buf, opt_buf)) => {
                             // Check that the body buffer will fit in the reply slot.
-                            if rep_header.body_len as usize > rep_body_buf.len() {
+                            if rep_header.body_len() > rep_body_buf.len() {
                                 return Err(Error::ReplyBodyTooLong);
                             }
                             // Check that the optional buffer length in the reply header is
                             // compatible with the reply slot that the requester stored.
                             match &opt_buf {
                                 None => {
-                                    if rep_header.buf_len > 0 {
+                                    if rep_header.buf_len != 0 {
                                         return Err(Error::ReplyOptBufUnexpected);
                                     }
                                 }
                                 Some(b) => {
-                                    if rep_header.buf_len as usize > b.len() {
+                                    if rep_header.buf_len() > b.len() {
                                         return Err(Error::ReplyOptBufTooLong);
                                     }
                                 }
                             }
-                            let n = rep_header.body_len as usize;
+                            let n = rep_header.body_len() + rep_header.buf_len();
                             if n == 0 {
-                                self.state = State::RecvdBody(rep_header, rep_body_buf, opt_buf);
+                                rcv_buf = &rcv_buf[REQ_HEADER_LEN..];
+                                self.state = State::WaitBody(rep_header, rep_body_buf, opt_buf);
                             } else {
                                 self.state = State::WaitBody(rep_header, rep_body_buf, opt_buf);
                                 return Ok((n, None));
@@ -358,39 +358,23 @@ impl RpcClient {
                 }
                 // Received body bytes
                 State::WaitBody(rep_header, mut rep_body_buf, opt_buf) => {
-                    let buf_len = rep_header.buf_len as usize;
-                    if rcv_buf.len() < buf_len {
-                        return Err(Error::ReceivedBufTooShort);
-                    }
-                    rep_body_buf[..buf_len].copy_from_slice(&rcv_buf[..buf_len]);
-                    self.state = State::RecvdBody(rep_header, rep_body_buf, opt_buf);
-                }
-                State::RecvdBody(rep_header, mut rep_body_buf, opt_buf) => {
-                    if let Some(buf) = opt_buf {
-                        let n = rep_header.buf_len as usize;
-                        self.state = State::WaitBuf(rep_header, rep_body_buf, buf);
-                        return Ok((n, None));
-                    } else {
-                        if rep_header.buf_len != 0 {
-                            return Err(Error::BufLenNotZero);
-                        } else {
-                            self.state = State::Reply(rep_header, rep_body_buf, opt_buf);
+                    let opt_buf = if let Some(mut buf) = opt_buf {
+                        let buf_len = rep_header.buf_len();
+                        if rcv_buf.len() < buf_len {
+                            return Err(Error::ReceivedBufTooShort);
                         }
-                    }
-                }
-                // Received optional buffer bytes
-                State::WaitBuf(rep_header, rep_body_buf, mut buf) => {
-                    let buf_len = rep_header.buf_len as usize;
-                    println!("buf_len: {}", buf_len);
-                    if rcv_buf.len() < buf_len {
+                        buf[..buf_len].copy_from_slice(&rcv_buf[..buf_len]);
+                        buf.truncate(buf_len);
+                        rcv_buf = &rcv_buf[buf_len..];
+                        Some(buf)
+                    } else {
+                        opt_buf
+                    };
+                    let body_len = rep_header.body_len();
+                    if rcv_buf.len() < body_len {
                         return Err(Error::ReceivedBufTooShort);
                     }
-                    buf[..buf_len].copy_from_slice(&rcv_buf[..buf_len]);
-                    buf.truncate(buf_len);
-                    self.state = State::Reply(rep_header, rep_body_buf, Some(buf));
-                }
-                // Received all the bytes necessary to build the complete reply
-                State::Reply(rep_header, rep_body_buf, opt_buf) => {
+                    rep_body_buf[..body_len].copy_from_slice(&rcv_buf[..body_len]);
                     let chan_id = rep_header.chan_id;
                     self.reply_slots[chan_id as usize] = ReplyState::Complete {
                         rep_header,

@@ -8,8 +8,8 @@ use hex;
 client_requests! {
     client_requests;
     (0, ClientRequestPing([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
-    (1, ClientRequestSendBytes((), OptBufYes, (), OptBufNo)),
-    (2, ClientRequestRecvBytes((), OptBufNo, (), OptBufYes))
+    (1, ClientRequestSendBytes(u32, OptBufYes, u32, OptBufNo)),
+    (2, ClientRequestRecvBytes(u32, OptBufNo, u32, OptBufYes))
 }
 
 // server_requests! {
@@ -22,21 +22,21 @@ client_requests! {
 #[derive(Debug)]
 enum ServerRequests<'a> {
     Ping(server::RequestType<[u8; 4], OptBufNo, [u8; 4], OptBufNo>),
-    SendBytes((server::RequestType<(), OptBufYes, (), OptBufNo>, &'a [u8])),
-    RecvBytes(server::RequestType<(), OptBufNo, (), OptBufYes>),
+    SendBytes(server::RequestType<u32, OptBufYes, u32, OptBufNo>, &'a [u8]),
+    RecvBytes(server::RequestType<u32, OptBufNo, u32, OptBufYes>),
 }
 
 impl<'a> server::Request<'a> for ServerRequests<'a> {
-    // type R = Self;
-
     fn from_bytes(header: urpc::RequestHeader, buf: &'a [u8]) -> server::Result<Self> {
         Ok(match header.method_idx {
             0 => ServerRequests::Ping(server::RequestType::<_, OptBufNo, _, _>::from_bytes(
                 header, buf,
             )?),
-            1 => ServerRequests::SendBytes(server::RequestType::<_, OptBufYes, _, _>::from_bytes(
-                header, buf,
-            )?),
+            1 => {
+                let (req, buf) =
+                    server::RequestType::<_, OptBufYes, _, _>::from_bytes(header, buf)?;
+                ServerRequests::SendBytes(req, buf)
+            }
             2 => ServerRequests::RecvBytes(server::RequestType::<_, OptBufNo, _, _>::from_bytes(
                 header, buf,
             )?),
@@ -73,7 +73,7 @@ fn main() -> () {
             1 => {
                 println!("--- SendBytes ---");
                 let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-                let mut req = ClientRequestSendBytes::new(());
+                let mut req = ClientRequestSendBytes::new(1100);
                 read_buf_len = req
                     .request(&req_buf, &mut rpc_client, vec![0; buf_len], &mut read_buf)
                     .unwrap();
@@ -81,7 +81,7 @@ fn main() -> () {
             }
             2 => {
                 println!("--- RecvBytes ---");
-                let mut req = ClientRequestRecvBytes::new(());
+                let mut req = ClientRequestRecvBytes::new(2200);
                 read_buf_len = req
                     .request(
                         &mut rpc_client,
@@ -121,12 +121,23 @@ fn main() -> () {
                             let ping_body = ping.body;
                             write_buf_len = ping.reply(ping_body, &mut write_buf).unwrap();
                         }
-                        ServerRequests::SendBytes((send_bytes, buf)) => {
+                        ServerRequests::SendBytes(send_bytes, buf) => {
                             println!("send_bytes: {}", hex::encode(buf));
-                            write_buf_len = send_bytes.reply((), &mut write_buf).unwrap();
+                            write_buf_len = send_bytes.reply(1111, &mut write_buf).unwrap();
                         }
                         ServerRequests::RecvBytes(recv_bytes) => {
-                            write_buf_len = recv_bytes.reply((), &mut write_buf).unwrap();
+                            let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+                            let opt_buf_len = {
+                                let mut opt_buf = recv_bytes.get_opt_buf(&mut write_buf);
+                                let n = 8;
+                                for i in 0..n {
+                                    opt_buf[i] = (i * 2) as u8;
+                                }
+                                n
+                            };
+                            write_buf_len = recv_bytes
+                                .reply(2222, opt_buf_len as u16, &mut write_buf)
+                                .unwrap();
                         }
                     }
                     break;

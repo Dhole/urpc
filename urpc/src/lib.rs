@@ -94,19 +94,37 @@ pub struct Opts {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct RequestHeader {
     pub method_idx: u8,
-    pub chan_id: u8,
-    pub opts: u8,
-    pub body_len: u16,
-    pub buf_len: u16,
+    chan_id: u8,
+    opts: u8,
+    body_len: u16,
+    buf_len: u16,
+}
+
+impl RequestHeader {
+    pub fn body_len(&self) -> usize {
+        self.body_len as usize
+    }
+    pub fn buf_len(&self) -> usize {
+        self.buf_len as usize
+    }
 }
 
 /// Header of a reply packet
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ReplyHeader {
-    pub chan_id: u8,
-    pub opts: u8,
-    pub body_len: u16,
-    pub buf_len: u16,
+    chan_id: u8,
+    opts: u8,
+    body_len: u16,
+    buf_len: u16,
+}
+
+impl ReplyHeader {
+    pub fn body_len(&self) -> usize {
+        self.body_len as usize
+    }
+    pub fn buf_len(&self) -> usize {
+        self.buf_len as usize
+    }
 }
 
 // enum ReplyType {
