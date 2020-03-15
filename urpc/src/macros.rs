@@ -176,24 +176,34 @@ macro_rules! client_requests {
 ///     }
 /// }
 /// ```
+
+#[macro_export(local_inner_macros)]
+macro_rules! server_requests_variant {
+    ($req_type:ty, OptBufNo, $rep_type:ty, $rep_opt_buf:ident) => {
+        $crate::server::RequestType<$req_type, OptBufNo, $rep_type, $rep_opt_buf>
+    };
+    ($req_type:ty, OptBufYes, $rep_type:ty, $rep_opt_buf:ident) => {
+        ($crate::server::RequestType<$req_type, OptBufYes, $rep_type, $rep_opt_buf>, &'a [u8])
+    };
+}
+
 #[macro_export(local_inner_macros)]
 macro_rules! server_requests {
     ($request_enum:ident;
      $( ($id: expr, $method:ident ($req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
         #[derive(Debug)]
-        enum $request_enum {
+        enum $request_enum<'a> {
             $(
-                $method($crate::server::RequestType<$req_type, $rep_type>),
+                $method(server_requests_variant!($req_type, $req_opt_buf, $rep_type, $rep_opt_buf)),
             )*
         }
 
-        impl server::Request for $request_enum {
-            type R = Self;
-
-            fn from_bytes(header: $crate::RequestHeader, buf: &[u8]) -> $crate::server::Result<Self> {
+        impl<'a> server::Request<'a> for $request_enum<'a> {
+            fn from_bytes(header: $crate::RequestHeader, buf: &'a [u8]) -> $crate::server::Result<Self> {
                 Ok(match header.method_idx {
                     $(
-                        $id => $request_enum::$method($crate::server::RequestType::from_bytes(header, buf)?),
+                        $id => $request_enum::$method(
+                            $crate::server::RequestType::<_, $req_opt_buf, _, _>::from_bytes(header, buf)?),
                     )*
                     _ => {
                         return Err($crate::server::Error::WontImplement);

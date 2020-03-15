@@ -15,6 +15,7 @@ categories = ["embedded", "no-std"]
 [dependencies]
 postcard = "0.4.2"
 heapless = "0.5.1"
+urpc-derive = { path = "../derive" }
 
 [dependencies.serde]
 version = "1.0.102"

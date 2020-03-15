@@ -15,7 +15,10 @@ proc-macro = true
 [dependencies]
 postcard = "0.4.2"
 heapless = "0.5.1"
-urpc = { path = "../urpc" }
+# urpc = { path = "../urpc" }
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0", features = [ "extra-traits" ]}
 
 [dependencies.serde]
 version = "1.0.102"
@@ -23,6 +26,7 @@ default-features = false
 
 [dev-dependencies]
 hex = "0.4.0"
+urpc = { path = "../urpc" }
 
 [features]
 default = ["std"]

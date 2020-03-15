@@ -12,40 +12,40 @@ client_requests! {
     (2, ClientRequestRecvBytes(u32, OptBufNo, u32, OptBufYes))
 }
 
-// server_requests! {
-//     ServerRequest;
-//     (0, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
-//     (1, SendBytes((), OptBufYes, (), OptBufNo)),
-//     (2, RecvBytes((), OptBufNo, (), OptBufYes))
+server_requests! {
+    ServerRequests;
+    (0, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
+    (1, SendBytes(u32, OptBufYes, u32, OptBufNo)),
+    (2, RecvBytes(u32, OptBufNo, u32, OptBufYes))
+}
+
+// #[derive(Debug)]
+// enum ServerRequests<'a> {
+//     Ping(server::RequestType<[u8; 4], OptBufNo, [u8; 4], OptBufNo>),
+//     SendBytes(server::RequestType<u32, OptBufYes, u32, OptBufNo>, &'a [u8]),
+//     RecvBytes(server::RequestType<u32, OptBufNo, u32, OptBufYes>),
 // }
-
-#[derive(Debug)]
-enum ServerRequests<'a> {
-    Ping(server::RequestType<[u8; 4], OptBufNo, [u8; 4], OptBufNo>),
-    SendBytes(server::RequestType<u32, OptBufYes, u32, OptBufNo>, &'a [u8]),
-    RecvBytes(server::RequestType<u32, OptBufNo, u32, OptBufYes>),
-}
-
-impl<'a> server::Request<'a> for ServerRequests<'a> {
-    fn from_bytes(header: urpc::RequestHeader, buf: &'a [u8]) -> server::Result<Self> {
-        Ok(match header.method_idx {
-            0 => ServerRequests::Ping(server::RequestType::<_, OptBufNo, _, _>::from_bytes(
-                header, buf,
-            )?),
-            1 => {
-                let (req, buf) =
-                    server::RequestType::<_, OptBufYes, _, _>::from_bytes(header, buf)?;
-                ServerRequests::SendBytes(req, buf)
-            }
-            2 => ServerRequests::RecvBytes(server::RequestType::<_, OptBufNo, _, _>::from_bytes(
-                header, buf,
-            )?),
-            _ => {
-                return Err(server::Error::WontImplement);
-            }
-        })
-    }
-}
+//
+// impl<'a> server::Request<'a> for ServerRequests<'a> {
+//     fn from_bytes(header: urpc::RequestHeader, buf: &'a [u8]) -> server::Result<Self> {
+//         Ok(match header.method_idx {
+//             0 => ServerRequests::Ping(server::RequestType::<_, OptBufNo, _, _>::from_bytes(
+//                 header, buf,
+//             )?),
+//             1 => {
+//                 let (req, buf) =
+//                     server::RequestType::<_, OptBufYes, _, _>::from_bytes(header, buf)?;
+//                 ServerRequests::SendBytes(req, buf)
+//             }
+//             2 => ServerRequests::RecvBytes(server::RequestType::<_, OptBufNo, _, _>::from_bytes(
+//                 header, buf,
+//             )?),
+//             _ => {
+//                 return Err(server::Error::WontImplement);
+//             }
+//         })
+//     }
+// }
 
 fn main() -> () {
     const buf_len: usize = 4096;
@@ -121,7 +121,7 @@ fn main() -> () {
                             let ping_body = ping.body;
                             write_buf_len = ping.reply(ping_body, &mut write_buf).unwrap();
                         }
-                        ServerRequests::SendBytes(send_bytes, buf) => {
+                        ServerRequests::SendBytes((send_bytes, buf)) => {
                             println!("send_bytes: {}", hex::encode(buf));
                             write_buf_len = send_bytes.reply(1111, &mut write_buf).unwrap();
                         }

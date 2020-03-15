@@ -1,6 +1,8 @@
 use super::consts::*;
 use super::*;
 
+pub use urpc_derive::*;
+
 use core::marker::PhantomData;
 use core::mem::swap;
 
