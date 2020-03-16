@@ -30,7 +30,7 @@ macro_rules! client_request_export {
 /// # Examples
 ///
 /// ```
-/// use urpc::{client_requests, client, consts, client::{OptBufNo, OptBufYes}};
+/// use urpc::{client_requests, client, consts, OptBufNo, OptBufYes};
 ///
 /// client_requests! {
 ///     client_requests;
@@ -123,7 +123,7 @@ macro_rules! client_requests {
 /// Examples
 ///
 /// ```
-/// use urpc::{server_requests, server, consts};
+/// use urpc::{server_requests, server, consts, OptBufNo, OptBufYes};
 ///
 /// server_requests! {
 ///     ServerRequest;
@@ -148,17 +148,17 @@ macro_rules! client_requests {
 ///         server::ParseResult::NeedBytes(n) => {
 ///             read_len = n;
 ///         }
-///         server::ParseResult::Request(req, opt_buf) => {
+///         server::ParseResult::Request(req) => {
 ///             read_len = consts::REQ_HEADER_LEN;
 ///             match req.unwrap() {
 ///                 ServerRequest::Ping(ping) => {
-///                     println!("request ping: {:?}, {:?}", ping.body, opt_buf);
+///                     println!("request ping: {:?}", ping.body);
 ///                     let ping_body = ping.body;
 ///                     send_buf_bytes = ping.reply(ping_body, &mut send_buf).unwrap();
 ///                     println!("reply bytes: {:02x?}", &send_buf[..send_buf_bytes]);
 ///                 }
-///                 ServerRequest::SendBytes(send_bytes) => {
-///                     println!("request send_bytes: {:?}, {:?}", send_bytes.body, opt_buf);
+///                 ServerRequest::SendBytes((send_bytes, buf)) => {
+///                     println!("request send_bytes: {:?}, {:?}", send_bytes.body, buf);
 ///                     send_buf_bytes = send_bytes.reply((), &mut send_buf).unwrap();
 ///                     println!("reply bytes: {:02x?}", &send_buf[..send_buf_bytes]);
 ///                 }
