@@ -110,42 +110,52 @@ enum State {
 }
 
 /// Result of parsing some bytes by the RPC Server.
-pub enum ParseResult<R> {
+pub enum ParseResult<T> {
     NeedBytes(usize),
-    Request(Result<R>),
+    Request(T),
 }
 
 /// RPC Call request.
 pub trait Request<'a>
 where
-    Self: Sized,
+    Self: Sized + 'a,
 {
     // where Self: std::marker::Sized
     // type R;
 
     fn from_bytes(header: RequestHeader, buf: &'a [u8]) -> Result<Self>;
+
+    fn from_rpc(rpc_server: &mut RpcServer, rcv_buf: &'a [u8]) -> Result<ParseResult<Self>> {
+        match rpc_server.parse(&rcv_buf)? {
+            ParseResult::NeedBytes(n) => Ok(ParseResult::NeedBytes(n)),
+            ParseResult::Request((header, body_buf)) => {
+                Ok(ParseResult::Request(Self::from_bytes(header, body_buf)?))
+            }
+        }
+    }
 }
 
 /// Main component of the RPC Server.  The server keeps the state of the parsed bytes and outputs
 /// the requests once they are received.
-pub struct RpcServer<'a, R: Request<'a>> {
+pub struct RpcServer {
     max_buf_len: u16,
     state: State,
-    phantom: PhantomData<&'a R>,
 }
 
-impl<'a, R: Request<'a>> RpcServer<'a, R> {
+impl RpcServer {
     pub fn new(max_buf_len: u16) -> Self {
         Self {
             max_buf_len,
             state: State::WaitHeader,
-            phantom: PhantomData::<&'a R>,
         }
     }
 
     /// Parse incoming bytes and return wether a request has been received, or more bytes are
     /// needed to build a complete request.
-    pub fn parse(&mut self, rcv_buf: &'a [u8]) -> Result<ParseResult<R>> {
+    pub fn parse<'a>(
+        &mut self,
+        rcv_buf: &'a [u8],
+    ) -> Result<ParseResult<(RequestHeader, &'a [u8])>> {
         let mut opt_buf: Option<&'a [u8]> = None;
         loop {
             let mut state = State::WaitHeader;
@@ -164,9 +174,9 @@ impl<'a, R: Request<'a>> RpcServer<'a, R> {
                     let req_header_body_len = req_header.body_len;
                     let req_header_buf_len = req_header.buf_len;
                     if req_header_body_len + req_header_buf_len == 0 {
-                        let req = R::from_bytes(req_header, &[]);
+                        // let req = R::from_bytes(req_header, &[]);
                         self.state = State::WaitHeader;
-                        return Ok(ParseResult::Request(req));
+                        return Ok(ParseResult::Request((req_header, &[])));
                     } else {
                         let ret =
                             ParseResult::NeedBytes(req_header.body_len() + req_header.buf_len());
@@ -175,9 +185,9 @@ impl<'a, R: Request<'a>> RpcServer<'a, R> {
                     }
                 }
                 State::WaitBody(req_header) => {
-                    let req = R::from_bytes(req_header, &rcv_buf[..]);
+                    // let req = R::from_bytes(req_header, &rcv_buf[..]);
                     self.state = State::WaitHeader;
-                    return Ok(ParseResult::Request(req));
+                    return Ok(ParseResult::Request((req_header, &rcv_buf[..])));
                 }
             }
         }

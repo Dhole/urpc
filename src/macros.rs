@@ -123,7 +123,7 @@ macro_rules! client_requests {
 /// Examples
 ///
 /// ```
-/// use urpc::{server_requests, server, consts, OptBufNo, OptBufYes};
+/// use urpc::{server_requests, server::{self, Request}, consts, OptBufNo, OptBufYes};
 ///
 /// server_requests! {
 ///     ServerRequest;
@@ -131,7 +131,7 @@ macro_rules! client_requests {
 ///     (1, SendBytes((), OptBufYes, (), OptBufNo))
 /// }
 ///
-/// let mut rpc_server = server::RpcServer::<ServerRequest>::new(32);
+/// let mut rpc_server = server::RpcServer::new(32);
 /// let mut recv_buf = vec![0; 32];
 /// let mut send_buf = vec![0; 32];
 ///
@@ -144,13 +144,13 @@ macro_rules! client_requests {
 /// let mut send_buf_bytes = 0;
 /// loop {
 ///     let buf = &recv_buf[pos..pos + read_len];
-///     match rpc_server.parse(&buf).unwrap() {
+///     match ServerRequest::from_rpc(&mut rpc_server, &buf).unwrap() {
 ///         server::ParseResult::NeedBytes(n) => {
 ///             read_len = n;
 ///         }
 ///         server::ParseResult::Request(req) => {
 ///             read_len = consts::REQ_HEADER_LEN;
-///             match req.unwrap() {
+///             match req {
 ///                 ServerRequest::Ping(ping) => {
 ///                     println!("request ping: {:?}", ping.body);
 ///                     let ping_body = ping.body;

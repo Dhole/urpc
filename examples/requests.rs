@@ -1,7 +1,11 @@
 #[macro_use]
 extern crate urpc;
 
-use urpc::{client, consts, server, OptBufNo, OptBufYes};
+use urpc::{
+    client, consts,
+    server::{self, Request},
+    OptBufNo, OptBufYes,
+};
 
 use hex;
 
@@ -73,7 +77,7 @@ fn main() -> () {
             hex::encode(&read_buf[..read_buf_len])
         );
 
-        let mut rpc_server = server::RpcServer::<ServerRequests>::new(buf_len as u16);
+        let mut rpc_server = server::RpcServer::new(buf_len as u16);
         let mut pos = 0;
         let mut read_len = consts::REQ_HEADER_LEN;
         let mut write_buf_len = 0;
@@ -81,14 +85,14 @@ fn main() -> () {
             let buf = &read_buf[pos..pos + read_len];
             println!("pos: {}, buf: {}", pos, hex::encode(buf));
             pos += read_len;
-            match rpc_server.parse(&buf).unwrap() {
+            match ServerRequests::from_rpc(&mut rpc_server, &buf).unwrap() {
                 server::ParseResult::NeedBytes(n) => {
                     read_len = n;
                 }
                 server::ParseResult::Request(req) => {
                     read_len = consts::REQ_HEADER_LEN;
                     println!("request: {:?}", req);
-                    match req.unwrap() {
+                    match req {
                         ServerRequests::Ping(ping) => {
                             let ping_body = ping.body;
                             write_buf_len = ping.reply(ping_body, &mut write_buf).unwrap();
@@ -98,7 +102,6 @@ fn main() -> () {
                             write_buf_len = send_bytes.reply(1111, &mut write_buf).unwrap();
                         }
                         ServerRequests::RecvBytes(recv_bytes) => {
-                            let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
                             let opt_buf_len = {
                                 let mut opt_buf = recv_bytes.get_opt_buf(&mut write_buf);
                                 let n = 8;
