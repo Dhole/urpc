@@ -57,6 +57,10 @@ impl<R: Request, QB: OptBuf, PB: OptBuf> RequestType<R, QB, PB> {
             phantom: PhantomData::<(QB, PB)>,
         }
     }
+
+    pub fn chan_id(&self) -> u8 {
+        self.chan_id
+    }
 }
 
 impl<R: Request> RequestType<R, OptBufNo, OptBufNo> {
@@ -171,12 +175,15 @@ impl<R: Request> RequestType<R, OptBufYes, OptBufYes> {
 impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
     /// Try to take the reply for this request from the RPC Client.  If no such reply exists,
     /// returns None.
-    pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Vec<u8>)>> {
+    pub fn take_reply(
+        &mut self,
+        rpc_client: &mut RpcClient,
+    ) -> Option<Result<(R::P, Vec<u8>, Vec<u8>)>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
             Some((rep_header, rep_body_buf, opt_buf)) => Some(
                 postcard::from_bytes(&rep_body_buf)
-                    .map(|r| (r, opt_buf.unwrap()))
+                    .map(|r| (r, opt_buf.unwrap(), rep_body_buf))
                     .map_err(|e| e.into()),
             ),
         }
@@ -186,12 +193,16 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
 impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
     /// Try to take the reply for this request from the RPC Client.  If no such reply exists,
     /// returns None.
-    pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<R::P>> {
+    pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Vec<u8>)>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
             Some((rep_header, rep_body_buf, _opt_buf)) => {
                 // println!(">>> {:?}", rep_body_buf);
-                Some(postcard::from_bytes(&rep_body_buf).map_err(|e| e.into()))
+                Some(
+                    postcard::from_bytes(&rep_body_buf)
+                        .map(|r| (r, rep_body_buf))
+                        .map_err(|e| e.into()),
+                )
             }
         }
     }
@@ -392,5 +403,72 @@ impl RpcClient {
     /// Take the reply of the slot in a channel id if it's complete.
     pub fn take_reply(&mut self, chan_id: u8) -> Option<(ReplyHeader, Vec<u8>, Option<Vec<u8>>)> {
         self.reply_slots[chan_id as usize].take_complete()
+    }
+}
+
+use std::io;
+
+pub struct RpcClientIO<S: io::Read + io::Write> {
+    pub client: RpcClient,
+    stream: S,
+    pub stream_buf: Vec<u8>,
+    pub buf_len: usize,
+    // pub body_buf: Option<Vec<u8>>,
+    // pub opt_buf: Option<Vec<u8>>,
+}
+
+#[derive(Debug)]
+pub enum RpcClientIOError {
+    Io(io::Error),
+    Urpc(Error),
+}
+
+impl From<io::Error> for RpcClientIOError {
+    fn from(err: io::Error) -> Self {
+        Self::Io(err)
+    }
+}
+
+impl From<Error> for RpcClientIOError {
+    fn from(err: Error) -> Self {
+        Self::Urpc(err)
+    }
+}
+
+impl<S: io::Read + io::Write> RpcClientIO<S> {
+    pub fn new(stream: S, buf_len: usize) -> Self {
+        Self {
+            client: RpcClient::new(),
+            stream: stream,
+            stream_buf: vec![0; buf_len],
+            buf_len: buf_len,
+            // body_buf: Some(vec![0; buf_len]),
+            // opt_buf: Some(vec![0; buf_len]),
+        }
+    }
+
+    pub fn request(
+        &mut self,
+        chan_id: u8,
+        write_len: usize,
+    ) -> core::result::Result<(), RpcClientIOError> {
+        self.stream.write_all(&self.stream_buf[..write_len])?;
+        self.stream.flush()?;
+
+        let mut pos = 0;
+        let mut read_len = consts::REP_HEADER_LEN;
+        loop {
+            let mut buf = &mut self.stream_buf[..read_len];
+            self.stream.read_exact(&mut buf)?;
+            read_len = match self.client.parse(&buf)? {
+                (n, None) => n,
+                (n, Some(_chan_id)) => {
+                    if _chan_id == chan_id {
+                        return Ok(());
+                    }
+                    n
+                }
+            }
+        }
     }
 }

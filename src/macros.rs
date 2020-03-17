@@ -97,6 +97,7 @@ macro_rules! client_request_export {
 macro_rules! client_requests {
     ($request_mod:ident;
         $( ($id:expr, $method:ident ( $req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
+            use urpc::{OptBufNo, OptBufYes};
             mod $request_mod {
             $(
                 pub struct $method;
@@ -109,12 +110,129 @@ macro_rules! client_requests {
             }
             $(
                 // client_request_export!($request_mod, $method, $req_opt_buf, $rep_opt_buf);
-                type $method = $crate::client::RequestType<
+                pub type $method = $crate::client::RequestType<
                 $request_mod::$method,
                 $req_opt_buf,
                 $rep_opt_buf,
                 >;
             )*
+    };
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! rpc_client_io_fn {
+    ($fn:ident, $method:ident ( $req_type:ty, OptBufNo, $rep_type:ty, OptBufNo)) => {
+        pub fn $fn(
+            &mut self,
+            arg: $req_type,
+        ) -> Result<$rep_type, $crate::client::RpcClientIOError> {
+            let mut req = $method::new(arg);
+            let write_len = req.request(
+                &mut self.rpc.client,
+                std::vec![0; self.rpc.buf_len],
+                &mut self.rpc.stream_buf,
+            )?;
+            self.rpc.request(req.chan_id(), write_len)?;
+            let (r, _) = req.take_reply(&mut self.rpc.client).unwrap()?;
+            Ok(r)
+        }
+    };
+    ($fn:ident, $method:ident ( $req_type:ty, OptBufYes, $rep_type:ty, OptBufNo)) => {
+        pub fn $fn(
+            &mut self,
+            arg: $req_type,
+            req_buf: &[u8],
+        ) -> Result<$rep_type, $crate::client::RpcClientIOError> {
+            let mut req = $method::new(arg);
+            let write_len = req.request(
+                req_buf,
+                &mut self.rpc.client,
+                std::vec![0; self.rpc.buf_len],
+                &mut self.rpc.stream_buf,
+            )?;
+            self.rpc.request(req.chan_id(), write_len)?;
+            let (r, _) = req.take_reply(&mut self.rpc.client).unwrap()?;
+            Ok(r)
+        }
+    };
+    ($fn:ident, $method:ident ( $req_type:ty, OptBufNo, $rep_type:ty, OptBufYes)) => {
+        pub fn $fn(
+            &mut self,
+            arg: $req_type,
+        ) -> Result<($rep_type, Vec<u8>), $crate::client::RpcClientIOError> {
+            let mut req = $method::new(arg);
+            let write_len = req.request(
+                &mut self.rpc.client,
+                std::vec![0; self.rpc.buf_len],
+                std::vec![0; self.rpc.buf_len],
+                &mut self.rpc.stream_buf,
+            )?;
+            self.rpc.request(req.chan_id(), write_len)?;
+            let (r, buf, _) = req.take_reply(&mut self.rpc.client).unwrap()?;
+            Ok((r, buf))
+        }
+    };
+    ($fn:ident, $method:ident ( $req_type:ty, OptBufYes, $rep_type:ty, OptBufYes)) => {
+        pub fn $fn(
+            &mut self,
+            arg: $req_type,
+            req_buf: &[u8],
+        ) -> Result<($rep_type, Vec<u8>), $crate::client::RpcClientIOError> {
+            let mut req = $method::new(arg);
+            let write_len = req.request(
+                req_buf,
+                &mut self.rpc.client,
+                std::vec![0; self.rpc.buf_len],
+                std::vec![0; self.rpc.buf_len],
+                &mut self.rpc.stream_buf,
+            )?;
+            self.rpc.request(req.chan_id(), write_len)?;
+            let (r, buf, _) = req.take_reply(&mut self.rpc.client).unwrap()?;
+            Ok((r, buf))
+        }
+    };
+}
+
+#[macro_export(local_inner_macros)]
+macro_rules! rpc_client_io {
+    ($client:ident;
+     $request_mod:ident;
+        $( ($id:expr, $fn:ident, $method:ident ( $req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
+        use std::io::{self, Read, Write};
+
+        client_requests! {
+            $request_mod;
+            $(
+                ($id, $method ( $req_type, $req_opt_buf, $rep_type, $rep_opt_buf))
+            ),*
+        }
+
+        pub struct $client<S: io::Read + io::Write> {
+            rpc: $crate::client::RpcClientIO<S>,
+        }
+
+        impl<S: Read + Write> $client<S> {
+            pub fn new(stream: S, buf_len: usize) -> Self {
+                Self {
+                    rpc: $crate::client::RpcClientIO::new(stream, buf_len),
+                }
+            }
+            $(
+                rpc_client_io_fn!($fn, $method ( $req_type, $req_opt_buf, $rep_type, $rep_opt_buf));
+                // pub fn $fn(&mut self, arg: $req_type) -> Result<$rep_type, $crate::client::RpcClientIOError> {
+                //     let mut req = $method::new(arg);
+                //     let write_len = req.request(
+                //         &mut self.rpc.client,
+                //         self.rpc.body_buf.take().unwrap(),
+                //         &mut self.rpc.stream_buf,
+                //     )?;
+                //     self.rpc.request(req.chan_id(), write_len)?;
+                //     let (r, body_buf) = req.take_reply(&mut self.rpc.client).unwrap()?;
+                //     self.rpc.body_buf = Some(body_buf);
+                //     Ok(r)
+                // }
+            )*
+        }
     };
 }
 

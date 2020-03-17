@@ -137,7 +137,8 @@ fn main() -> () {
                     read_len = rpc_client.parse(&buf).unwrap().0;
                     match req.take_reply(&mut rpc_client) {
                         Some(r) => {
-                            println!("reply: {:?}", r.unwrap());
+                            let (r, _) = r.unwrap();
+                            println!("reply: {:?}", r);
                             break;
                         }
                         None => {}
@@ -156,7 +157,8 @@ fn main() -> () {
                     read_len = rpc_client.parse(&buf).unwrap().0;
                     match req.take_reply(&mut rpc_client) {
                         Some(r) => {
-                            println!("reply: {:?}", r.unwrap());
+                            let (r, _) = r.unwrap();
+                            println!("reply: {:?}", r);
                             break;
                         }
                         None => {}
@@ -175,7 +177,8 @@ fn main() -> () {
                     read_len = rpc_client.parse(&buf).unwrap().0;
                     match req.take_reply(&mut rpc_client) {
                         Some(r) => {
-                            println!("reply: {:?}", r.unwrap());
+                            let (r, b, _) = r.unwrap();
+                            println!("reply: {:?} {:?}", r, b);
                             break;
                         }
                         None => {}
