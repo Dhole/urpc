@@ -358,7 +358,6 @@ impl RpcClient {
                             }
                             let n = rep_header.body_len() + rep_header.buf_len();
                             if n == 0 {
-                                println!("CCC");
                                 rcv_buf = &rcv_buf[REP_HEADER_LEN..];
                                 self.state = State::WaitBody(rep_header, rep_body_buf, opt_buf);
                             } else {
