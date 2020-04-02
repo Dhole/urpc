@@ -181,7 +181,7 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
     ) -> Option<Result<(R::P, Vec<u8>, Vec<u8>)>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
-            Some((rep_header, rep_body_buf, opt_buf)) => Some(
+            Some((_rep_header, rep_body_buf, opt_buf)) => Some(
                 postcard::from_bytes(&rep_body_buf)
                     .map(|r| (r, opt_buf.unwrap(), rep_body_buf))
                     .map_err(|e| e.into()),
@@ -196,7 +196,7 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
     pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<(R::P, Vec<u8>)>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
-            Some((rep_header, rep_body_buf, _opt_buf)) => {
+            Some((_rep_header, rep_body_buf, _opt_buf)) => {
                 // println!(">>> {:?}", rep_body_buf);
                 Some(
                     postcard::from_bytes(&rep_body_buf)
@@ -454,7 +454,6 @@ impl<S: io::Read + io::Write> RpcClientIO<S> {
         self.stream.write_all(&self.stream_buf[..write_len])?;
         self.stream.flush()?;
 
-        let mut pos = 0;
         let mut read_len = consts::REP_HEADER_LEN;
         loop {
             let mut buf = &mut self.stream_buf[..read_len];

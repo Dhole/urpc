@@ -15,6 +15,7 @@ categories = ["embedded", "no-std"]
 [dependencies]
 postcard = "0.4.2"
 heapless = "0.5.1"
+paste = "0.1.7"
 
 [dependencies.serde]
 version = "1.0.102"

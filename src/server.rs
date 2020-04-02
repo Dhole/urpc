@@ -89,7 +89,7 @@ impl<Q: DeserializeOwned, QB: OptBuf, P: Serialize> RequestType<Q, QB, P, OptBuf
 
 impl<Q: DeserializeOwned, QB: OptBuf, P: Serialize, PB: OptBuf> RequestType<Q, QB, P, PB> {
     /// Serialize an error reply packet.  Returns the number of bytes written to `reply_buf`.
-    pub fn reply_err(self, err: u8, mut reply_buf: &mut [u8]) -> Result<usize> {
+    pub fn reply_err(self, _err: u8, mut reply_buf: &mut [u8]) -> Result<usize> {
         let header = ReplyHeader {
             chan_id: self.chan_id,
             opts: 1,
@@ -156,7 +156,6 @@ impl RpcServer {
         &mut self,
         rcv_buf: &'a [u8],
     ) -> Result<ParseResult<(RequestHeader, &'a [u8])>> {
-        let mut opt_buf: Option<&'a [u8]> = None;
         loop {
             let mut state = State::WaitHeader;
             swap(&mut state, &mut self.state);

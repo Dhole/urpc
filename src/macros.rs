@@ -98,23 +98,27 @@ macro_rules! client_requests {
     ($request_mod:ident;
         $( ($id:expr, $method:ident ( $req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
             use urpc::{OptBufNo, OptBufYes};
-            mod $request_mod {
+            use paste;
+
             $(
-                pub struct $method;
-                impl $crate::client::Request for $method {
-                    type Q = $req_type;
-                    type P = $rep_type;
-                    const METHOD_ID: u8 = $id;
+                paste::item! {
+                    pub struct [<REQ_ $method>];
+                    impl $crate::client::Request for [<REQ_ $method>] {
+                        type Q = $req_type;
+                        type P = $rep_type;
+                        const METHOD_ID: u8 = $id;
+                    }
                 }
             )*
-            }
             $(
-                // client_request_export!($request_mod, $method, $req_opt_buf, $rep_opt_buf);
-                pub type $method = $crate::client::RequestType<
-                $request_mod::$method,
-                $req_opt_buf,
-                $rep_opt_buf,
-                >;
+                paste::item! {
+                    // client_request_export!($request_mod, $method, $req_opt_buf, $rep_opt_buf);
+                    pub type $method = $crate::client::RequestType<
+                    [<REQ_ $method>],
+                    $req_opt_buf,
+                    $rep_opt_buf,
+                    >;
+                }
             )*
     };
 }
@@ -245,8 +249,8 @@ macro_rules! rpc_client_io {
 ///
 /// server_requests! {
 ///     ServerRequest;
-///     (0, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
-///     (1, SendBytes((), OptBufYes, (), OptBufNo))
+///     (0, ping, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
+///     (1, send_bytes, SendBytes((), OptBufYes, (), OptBufNo))
 /// }
 ///
 /// let mut rpc_server = server::RpcServer::new(32);
@@ -308,7 +312,7 @@ macro_rules! server_requests_variant {
 #[macro_export(local_inner_macros)]
 macro_rules! server_requests {
     ($request_enum:ident;
-     $( ($id: expr, $method:ident ($req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
+     $( ($id: expr, $_fn:ident, $method:ident ($req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
         #[derive(Debug)]
         enum $request_enum<'a> {
             $(
