@@ -9,18 +9,20 @@ use urpc::{
 
 use hex;
 
-client_requests! {
-    client_requests;
-    (0, ClientRequestPing([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
-    (1, ClientRequestSendBytes(u32, OptBufYes, u32, OptBufNo)),
-    (2, ClientRequestRecvBytes(u32, OptBufNo, u32, OptBufYes))
+mod cli {
+    client_requests! {
+        client_requests;
+        (0, ping, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
+        (1, send_bytes, SendBytes(u32, OptBufYes, u32, OptBufNo)),
+        (2, recv_bytes, RecvBytes(u32, OptBufNo, u32, OptBufYes))
+    }
 }
 
 server_requests! {
     ServerRequests;
-    (0, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
-    (1, SendBytes(u32, OptBufYes, u32, OptBufNo)),
-    (2, RecvBytes(u32, OptBufNo, u32, OptBufYes))
+    (0, ping, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
+    (1, send_bytes, SendBytes(u32, OptBufYes, u32, OptBufNo)),
+    (2, recv_bytes, RecvBytes(u32, OptBufNo, u32, OptBufYes))
 }
 
 fn main() -> () {
@@ -40,7 +42,7 @@ fn main() -> () {
         match i {
             0 => {
                 println!("--- Ping ---");
-                let mut req = ClientRequestPing::new([0, 1, 2, 3]);
+                let mut req = cli::Ping::new([0, 1, 2, 3]);
                 read_buf_len = req
                     .request(&mut rpc_client, vec![0; buf_len], &mut read_buf)
                     .unwrap();
@@ -49,7 +51,7 @@ fn main() -> () {
             1 => {
                 println!("--- SendBytes ---");
                 let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-                let mut req = ClientRequestSendBytes::new(1100);
+                let mut req = cli::SendBytes::new(1100);
                 read_buf_len = req
                     .request(&req_buf, &mut rpc_client, vec![0; buf_len], &mut read_buf)
                     .unwrap();
@@ -57,7 +59,7 @@ fn main() -> () {
             }
             2 => {
                 println!("--- RecvBytes ---");
-                let mut req = ClientRequestRecvBytes::new(2200);
+                let mut req = cli::RecvBytes::new(2200);
                 read_buf_len = req
                     .request(
                         &mut rpc_client,

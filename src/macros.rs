@@ -32,17 +32,21 @@ macro_rules! client_request_export {
 /// ```
 /// use urpc::{client_requests, client, consts, OptBufNo, OptBufYes};
 ///
-/// client_requests! {
-///     client_requests;
-///     (0, ClientRequestPing([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
-///     (1, ClientRequestSendBytes((), OptBufYes, (), OptBufNo))
+/// mod cli {
+///     use urpc::client_requests;
+///
+///     client_requests! {
+///         client_requests;
+///         (0, ping, Ping([u8; 4], OptBufNo, [u8; 4], OptBufNo)),
+///         (1, send_bytes, SendBytes((), OptBufYes, (), OptBufNo))
+///     }
 /// }
 ///
 /// let mut rpc_client = client::RpcClient::new();
 /// let mut send_buf = vec![0; 32];
 /// let mut recv_buf = vec![0; 32];
 ///
-/// let mut req1 = ClientRequestPing::new([0, 1, 2, 3]);
+/// let mut req1 = cli::Ping::new([0, 1, 2, 3]);
 /// let send_buf_bytes = req1.request(&mut rpc_client, vec![0; 32], &mut send_buf).unwrap();
 /// println!("request bytes: {:02x?}", &send_buf[..send_buf_bytes]);
 ///
@@ -68,7 +72,7 @@ macro_rules! client_request_export {
 /// }
 ///
 /// let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-/// let mut req2 = ClientRequestSendBytes::new(());
+/// let mut req2 = cli::SendBytes::new(());
 /// let send_buf_bytes = req2.request(&req_buf, &mut rpc_client, vec![0; 32], &mut send_buf).unwrap();
 /// println!("request bytes: {:02x?}", &send_buf[..send_buf_bytes]);
 ///
@@ -96,7 +100,7 @@ macro_rules! client_request_export {
 #[macro_export(local_inner_macros)]
 macro_rules! client_requests {
     ($request_mod:ident;
-        $( ($id:expr, $method:ident ( $req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
+        $( ($id:expr, $_fn:expr, $method:ident ( $req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
             use urpc::{OptBufNo, OptBufYes};
             use paste;
 
@@ -207,7 +211,7 @@ macro_rules! rpc_client_io {
         client_requests! {
             $request_mod;
             $(
-                ($id, $method ( $req_type, $req_opt_buf, $rep_type, $rep_opt_buf))
+                ($id, $fn, $method ( $req_type, $req_opt_buf, $rep_type, $rep_opt_buf))
             ),*
         }
 
