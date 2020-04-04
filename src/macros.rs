@@ -42,7 +42,7 @@ macro_rules! client_request_export {
 ///     }
 /// }
 ///
-/// let mut rpc_client = client::RpcClient::new();
+/// let mut rpc_client = client::RpcClient::new(32);
 /// let mut send_buf = vec![0; 32];
 /// let mut recv_buf = vec![0; 32];
 ///
@@ -56,7 +56,7 @@ macro_rules! client_request_export {
 /// // Read from the network into recv_buf
 /// // [...]
 /// // We fill recv_buf with some precalculated replies to simulate a server reply
-/// recv_buf[..6].copy_from_slice(&[0x01, 0x00, 0x00, 0x00, 0x00, 0x00]);
+/// recv_buf[..10].copy_from_slice(&[0x01, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03]);
 ///
 /// // Parse read bytes with rpc_client and try to match replies from each request
 /// let mut pos = 0;

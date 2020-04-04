@@ -30,7 +30,7 @@ fn main() -> () {
     let mut read_buf = vec![0; buf_len];
     let mut write_buf = vec![0; buf_len];
 
-    let mut rpc_client = client::RpcClient::new();
+    let mut rpc_client = client::RpcClient::new(buf_len as u16);
 
     let mut req0 = None;
     let mut req1 = None;
@@ -139,7 +139,7 @@ fn main() -> () {
                     read_len = rpc_client.parse(&buf).unwrap().0;
                     match req.take_reply(&mut rpc_client) {
                         Some(r) => {
-                            let (r, _) = r.unwrap();
+                            let r = r.unwrap();
                             println!("reply: {:?}", r);
                             break;
                         }
@@ -159,7 +159,7 @@ fn main() -> () {
                     read_len = rpc_client.parse(&buf).unwrap().0;
                     match req.take_reply(&mut rpc_client) {
                         Some(r) => {
-                            let (r, _) = r.unwrap();
+                            let r = r.unwrap();
                             println!("reply: {:?}", r);
                             break;
                         }
@@ -179,7 +179,7 @@ fn main() -> () {
                     read_len = rpc_client.parse(&buf).unwrap().0;
                     match req.take_reply(&mut rpc_client) {
                         Some(r) => {
-                            let (r, b, _) = r.unwrap();
+                            let (r, b) = r.unwrap();
                             println!("reply: {:?} {:?}", r, b);
                             break;
                         }
