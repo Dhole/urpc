@@ -33,29 +33,26 @@ impl convert::From<postcard::Error> for Error {
     }
 }
 
-pub trait Request {
-    type Q: Serialize;
-    type P: DeserializeOwned;
+pub trait MethodId {
     const METHOD_ID: u8;
 }
 
-// enum RequestState {}
-
 /// Type used to build a Request for a particular RPC Call.
 #[derive(Debug)]
-pub struct RequestType<R: Request, QB: OptBuf, PB: OptBuf> {
+pub struct RequestType<M: MethodId, Q: Serialize, QB: OptBuf, P: DeserializeOwned, PB: OptBuf> {
     chan_id: u8,
-    body: R::Q,
-    phantom: PhantomData<(QB, PB)>,
-    // state: RequestState,
+    body: Q,
+    phantom: PhantomData<(M, QB, P, PB)>,
 }
 
-impl<R: Request, QB: OptBuf, PB: OptBuf> RequestType<R, QB, PB> {
-    pub fn new(req: R::Q) -> Self {
+impl<M: MethodId, Q: Serialize, QB: OptBuf, P: DeserializeOwned, PB: OptBuf>
+    RequestType<M, Q, QB, P, PB>
+{
+    pub fn new(req: Q) -> Self {
         Self {
             chan_id: 0,
             body: req,
-            phantom: PhantomData::<(QB, PB)>,
+            phantom: PhantomData::<(M, QB, P, PB)>,
         }
     }
 
@@ -64,101 +61,62 @@ impl<R: Request, QB: OptBuf, PB: OptBuf> RequestType<R, QB, PB> {
     }
 }
 
-impl<R: Request> RequestType<R, OptBufNo, OptBufNo> {
+impl<M: MethodId, Q: Serialize, P: DeserializeOwned, PB: OptBuf>
+    RequestType<M, Q, OptBufNo, P, PB>
+{
     /// Build a request and serialize it into buf.
-    pub fn request(
-        &mut self,
-        rpc_client: &mut RpcClient,
-        rep_body_buf: Vec<u8>,
-        mut buf: &mut [u8],
-    ) -> Result<usize> {
+    pub fn request(&mut self, rpc_client: &mut RpcClient, mut buf: &mut [u8]) -> Result<usize> {
         let mut header = RequestHeader {
-            method_idx: R::METHOD_ID,
+            method_idx: M::METHOD_ID,
             chan_id: 0,
             opts: 0,
             body_len: 0,
             buf_len: 0,
         };
-        let n = rpc_client.req(&mut header, &self.body, None, false, &mut buf)?;
+        let n = rpc_client.req(&mut header, &self.body, None, PB::opt_buf(), &mut buf)?;
         self.chan_id = header.chan_id;
         Ok(n)
     }
 }
 
-impl<R: Request> RequestType<R, OptBufNo, OptBufYes> {
-    /// Build a request and serialize it into buf.
-    pub fn request(
-        &mut self,
-        rpc_client: &mut RpcClient,
-        rep_body_buf: Vec<u8>,
-        rep_opt_buf: Vec<u8>,
-        mut buf: &mut [u8],
-    ) -> Result<usize> {
-        let mut header = RequestHeader {
-            method_idx: R::METHOD_ID,
-            chan_id: 0,
-            opts: 0,
-            body_len: 0,
-            buf_len: 0,
-        };
-        let n = rpc_client.req(&mut header, &self.body, None, true, &mut buf)?;
-        self.chan_id = header.chan_id;
-        Ok(n)
-    }
-}
-
-impl<R: Request> RequestType<R, OptBufYes, OptBufNo> {
+impl<M: MethodId, Q: Serialize, P: DeserializeOwned, PB: OptBuf>
+    RequestType<M, Q, OptBufYes, P, PB>
+{
     /// Build a request and serialize it into buf.
     pub fn request(
         &mut self,
         req_body_buf: &[u8],
         rpc_client: &mut RpcClient,
-        rep_body_buf: Vec<u8>,
         mut buf: &mut [u8],
     ) -> Result<usize> {
         let mut header = RequestHeader {
-            method_idx: R::METHOD_ID,
+            method_idx: M::METHOD_ID,
             chan_id: 0,
             opts: 0,
             body_len: 0,
             buf_len: 0,
         };
-        let n = rpc_client.req(&mut header, &self.body, Some(req_body_buf), false, &mut buf)?;
+        let n = rpc_client.req(
+            &mut header,
+            &self.body,
+            Some(req_body_buf),
+            PB::opt_buf(),
+            &mut buf,
+        )?;
         self.chan_id = header.chan_id;
         Ok(n)
     }
 }
 
-impl<R: Request> RequestType<R, OptBufYes, OptBufYes> {
-    /// Build a request and serialize it into buf.
-    pub fn request(
-        &mut self,
-        req_body_buf: &[u8],
-        rpc_client: &mut RpcClient,
-        rep_body_buf: Vec<u8>,
-        rep_opt_buf: Vec<u8>,
-        mut buf: &mut [u8],
-    ) -> Result<usize> {
-        let mut header = RequestHeader {
-            method_idx: R::METHOD_ID,
-            chan_id: 0,
-            opts: 0,
-            body_len: 0,
-            buf_len: 0,
-        };
-        let n = rpc_client.req(&mut header, &self.body, Some(req_body_buf), true, &mut buf)?;
-        self.chan_id = header.chan_id;
-        Ok(n)
-    }
-}
-
-impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
+impl<M: MethodId, Q: Serialize, P: DeserializeOwned, QB: OptBuf>
+    RequestType<M, Q, QB, P, OptBufYes>
+{
     /// Try to take the reply for this request from the RPC Client.  If no such reply exists,
     /// returns None.
     pub fn take_reply<'a>(
         &mut self,
         rpc_client: &'a mut RpcClient,
-    ) -> Option<Result<(R::P, &'a [u8])>> {
+    ) -> Option<Result<(P, &'a [u8])>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
             Some((_rep_header, rep_body_buf, opt_buf)) => Some(
@@ -170,14 +128,15 @@ impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufYes> {
     }
 }
 
-impl<R: Request, QB: OptBuf> RequestType<R, QB, OptBufNo> {
+impl<M: MethodId, Q: Serialize, P: DeserializeOwned, QB: OptBuf>
+    RequestType<M, Q, QB, P, OptBufNo>
+{
     /// Try to take the reply for this request from the RPC Client.  If no such reply exists,
     /// returns None.
-    pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<R::P>> {
+    pub fn take_reply(&mut self, rpc_client: &mut RpcClient) -> Option<Result<P>> {
         match rpc_client.take_reply(self.chan_id) {
             None => None,
             Some((_rep_header, rep_body_buf, _opt_buf)) => {
-                // println!(">>> {:?}", rep_body_buf);
                 Some(postcard::from_bytes(&rep_body_buf).map_err(|e| e.into()))
             }
         }
@@ -192,70 +151,21 @@ enum State {
     WaitTakeReply { header: ReplyHeader },
 }
 
-// #[derive(Debug)]
-// enum ReplyState<'a> {
-//     Empty,
-//     Waiting {
-//         // rep_body_buf: Vec<u8>,
-//         opt_buf: Option<Vec<u8>>,
-//     },
-//     Receiving,
-//     Complete {
-//         rep_header: ReplyHeader,
-//         // rep_body_buf: Vec<u8>,
-//         rep_body_buf: &'a [u8],
-//         opt_buf: Option<Vec<u8>>,
-//     },
-// }
-//
-// impl<'a> ReplyState<'a> {
-//     fn take_waiting(&mut self) -> Option<(Vec<u8>, Option<Vec<u8>>)> {
-//         match self {
-//             ReplyState::Waiting { .. } => (),
-//             _ => return None,
-//         }
-//         match mem::replace(self, ReplyState::Receiving) {
-//             ReplyState::Waiting {
-//                 rep_body_buf,
-//                 opt_buf,
-//             } => Some((rep_body_buf, opt_buf)),
-//             _ => None,
-//         }
-//     }
-//     fn take_complete(&mut self) -> Option<(ReplyHeader, Vec<u8>, Option<Vec<u8>>)> {
-//         match self {
-//             ReplyState::Complete { .. } => (),
-//             _ => return None,
-//         }
-//         match mem::replace(self, ReplyState::Empty) {
-//             ReplyState::Complete {
-//                 rep_header,
-//                 rep_body_buf,
-//                 opt_buf,
-//             } => Some((rep_header, rep_body_buf, opt_buf)),
-//             _ => None,
-//         }
-//     }
-// }
-
 /// Main component of the RPC Client.  The client keeps the state of the parsed bytes and stores
 /// replies that requests can retreive later.
 pub struct RpcClient {
     chan_id: u8,
     state: State,
-    buf: Vec<u8>, // Rcv Buf
-                  // reply_slots: Vec<ReplyState>,
+    buf: Vec<u8>,
 }
 
 impl RpcClient {
     /// Create a new RPC Client.
     pub fn new(max_buf_len: u16) -> Self {
-        // let reply_slots = (0..256).map(|_| ReplyState::Empty).collect();
         RpcClient {
             chan_id: 1, // Use 1 to avoid a successful parse of a zeroed buffer.
             state: State::Idle,
             buf: vec![0; max_buf_len as usize],
-            // reply_slots,
         }
     }
 
@@ -268,8 +178,6 @@ impl RpcClient {
         body: &S,
         req_body_buf: Option<&[u8]>,
         rep_opt_buf: bool,
-        // rep_body_buf: Vec<u8>,
-        // rep_opt_buf: Option<Vec<u8>>,
         mut buf: &mut [u8],
     ) -> Result<usize> {
         match self.state {
@@ -283,20 +191,6 @@ impl RpcClient {
             chan_id: header.chan_id,
             opt_buf: rep_opt_buf,
         };
-        // Make sure that the reply slot for this channel is not busy.
-        // match self.reply_slots[header.chan_id as usize] {
-        //     ReplyState::Empty => (),
-        //     ReplyState::Receiving => return Err(Error::ReplySlotReceiving),
-        //     ReplyState::Waiting { .. } => return Err(Error::ReplySlotWaiting),
-        //     ReplyState::Complete { .. } => return Err(Error::ReplySlotComplete),
-        // }
-        // Set the reply slot for this channel as waiting with the buffers to store the reply.
-        // self.reply_slots[header.chan_id as usize] = ReplyState::Waiting {
-        //     rep_body_buf,
-        //     opt_buf: rep_opt_buf,
-        // };
-        // TODO: Use channels id's wisely
-        // self.chan_id += 1;
         // Serialize the request (with the optional buffer)
         if let Some(req_body_buf) = req_body_buf {
             header.buf_len = req_body_buf.len() as u16;
@@ -312,35 +206,21 @@ impl RpcClient {
     /// number of bytes needed to keep advancing, and optionally the channel number of the completed
     /// deserialized reply.
     pub fn parse(&mut self, rcv_buf: &[u8]) -> Result<(usize, Option<u8>)> {
-        let mut rcv_buf = rcv_buf;
+        let rcv_buf = rcv_buf;
         loop {
             let mut state = State::Idle;
             swap(&mut state, &mut self.state);
             match state {
                 // Initial state: waiting for the header bytes
-                State::WaitHeader {
-                    chan_id: chan_id,
-                    opt_buf: opt_buf,
-                } => {
+                State::WaitHeader { chan_id, opt_buf } => {
                     let rep_header = rep_header_from_bytes(&rcv_buf)?;
                     if rep_header.chan_id != chan_id {
                         return Err(Error::TODO);
                     }
-                    // match self.reply_slots[rep_header.chan_id as usize].take_waiting() {
-                    // Check that there's a valid reply slot for this reply.
-                    //None => match self.reply_slots[rep_header.chan_id as usize] {
-                    //    ReplyState::Empty => return Err(Error::ReplySlotEmpty),
-                    //    ReplyState::Complete { .. } => return Err(Error::ReplySlotComplete),
-                    //    ReplyState::Receiving => return Err(Error::ReplySlotReceiving),
-                    //    ReplyState::Waiting { .. } => unreachable!(),
-                    //},
-                    // Some((rep_body_buf, opt_buf)) => {
                     // Check that the body buffer will fit in the reply slot.
                     if rep_header.body_len() > self.buf.len() {
                         return Err(Error::ReplyBodyTooLong);
                     }
-                    // Check that the optional buffer length in the reply header is
-                    // compatible with the reply slot that the requester stored.
                     if !opt_buf && rep_header.buf_len != 0 {
                         return Err(Error::ReplyOptBufUnexpected);
                     }
@@ -348,24 +228,10 @@ impl RpcClient {
                     if opt_buf && n > self.buf.len() {
                         return Err(Error::ReplyOptBufTooLong);
                     }
-                    // match &opt_buf {
-                    //     None => {
-                    //         if rep_header.buf_len != 0 {
-                    //             return Err(Error::ReplyOptBufUnexpected);
-                    //         }
-                    //     }
-                    //     Some(b) => {
-                    //         if rep_header.buf_len() > b.len() {
-                    //             return Err(Error::ReplyOptBufTooLong);
-                    //         }
-                    //     }
-                    // }
                     self.state = State::WaitBody { header: rep_header };
                     if n != 0 {
                         return Ok((n, None));
                     }
-                    // }
-                    // }
                 }
                 // Received body bytes
                 State::WaitBody { header: rep_header } => {
@@ -374,30 +240,7 @@ impl RpcClient {
                         return Err(Error::ReceivedBufTooShort);
                     }
                     self.buf[..n].copy_from_slice(&rcv_buf[..n]);
-                    // let opt_buf = if let Some(mut buf) = opt_buf {
-                    //     // let buf_len = rep_header.buf_len();
-                    //     // if rcv_buf.len() < buf_len {
-                    //     //     return Err(Error::ReceivedBufTooShort);
-                    //     // }
-                    //     buf[..buf_len].copy_from_slice(&rcv_buf[..buf_len]);
-                    //     buf.truncate(buf_len);
-                    //     rcv_buf = &rcv_buf[buf_len..];
-                    //     Some(buf)
-                    // } else {
-                    //     opt_buf
-                    // };
-                    // rcv_buf = &rcv_buf[rep_header.buf_len()..];
-                    // let body_len = rep_header.body_len();
-                    // if rcv_buf.len() < body_len {
-                    //     return Err(Error::ReceivedBufTooShort);
-                    // }
-                    // rep_body_buf[..body_len].copy_from_slice(&rcv_buf[..body_len]);
                     let chan_id = rep_header.chan_id;
-                    // self.reply_slots[chan_id as usize] = ReplyState::Complete {
-                    //     rep_header,
-                    //     rep_body_buf,
-                    //     opt_buf,
-                    // };
                     self.state = State::WaitTakeReply { header: rep_header };
                     return Ok((REP_HEADER_LEN, Some(chan_id)));
                 }
@@ -408,7 +251,6 @@ impl RpcClient {
 
     /// Take the reply of the slot in a channel id if it's complete.
     pub fn take_reply<'a>(&'a mut self, chan_id: u8) -> Option<(ReplyHeader, &'a [u8], &'a [u8])> {
-        // self.reply_slots[chan_id as usize].take_complete()
         let mut state = State::Idle;
         swap(&mut state, &mut self.state);
         match state {

@@ -43,9 +43,7 @@ fn main() -> () {
             0 => {
                 println!("--- Ping ---");
                 let mut req = cli::Ping::new([0, 1, 2, 3]);
-                read_buf_len = req
-                    .request(&mut rpc_client, vec![0; buf_len], &mut read_buf)
-                    .unwrap();
+                read_buf_len = req.request(&mut rpc_client, &mut read_buf).unwrap();
                 req0 = Some(req);
             }
             1 => {
@@ -53,21 +51,14 @@ fn main() -> () {
                 let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
                 let mut req = cli::SendBytes::new(1100);
                 read_buf_len = req
-                    .request(&req_buf, &mut rpc_client, vec![0; buf_len], &mut read_buf)
+                    .request(&req_buf, &mut rpc_client, &mut read_buf)
                     .unwrap();
                 req1 = Some(req);
             }
             2 => {
                 println!("--- RecvBytes ---");
                 let mut req = cli::RecvBytes::new(2200);
-                read_buf_len = req
-                    .request(
-                        &mut rpc_client,
-                        vec![0; buf_len],
-                        vec![0; buf_len],
-                        &mut read_buf,
-                    )
-                    .unwrap();
+                read_buf_len = req.request(&mut rpc_client, &mut read_buf).unwrap();
                 req2 = Some(req);
             }
             _ => {}

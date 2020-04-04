@@ -47,7 +47,7 @@ macro_rules! client_request_export {
 /// let mut recv_buf = vec![0; 32];
 ///
 /// let mut req1 = cli::Ping::new([0, 1, 2, 3]);
-/// let send_buf_bytes = req1.request(&mut rpc_client, vec![0; 32], &mut send_buf).unwrap();
+/// let send_buf_bytes = req1.request(&mut rpc_client, &mut send_buf).unwrap();
 /// println!("request bytes: {:02x?}", &send_buf[..send_buf_bytes]);
 ///
 /// // Send send_buf over the network
@@ -73,7 +73,7 @@ macro_rules! client_request_export {
 ///
 /// let req_buf = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 /// let mut req2 = cli::SendBytes::new(());
-/// let send_buf_bytes = req2.request(&req_buf, &mut rpc_client, vec![0; 32], &mut send_buf).unwrap();
+/// let send_buf_bytes = req2.request(&req_buf, &mut rpc_client, &mut send_buf).unwrap();
 /// println!("request bytes: {:02x?}", &send_buf[..send_buf_bytes]);
 ///
 /// // Send send_buf over the network
@@ -102,27 +102,24 @@ macro_rules! client_requests {
     ($request_mod:ident;
         $( ($id:expr, $_fn:expr, $method:ident ( $req_type:ty, $req_opt_buf:ident, $rep_type:ty, $rep_opt_buf:ident)) ),*) => {
             use urpc::{OptBufNo, OptBufYes};
-            use paste;
 
+            mod methodid {
+                $(
+                        pub struct $method;
+                        impl $crate::client::MethodId for $method {
+                            const METHOD_ID: u8 = $id;
+                        }
+                )*
+            }
             $(
-                paste::item! {
-                    pub struct [<REQ_ $method>];
-                    impl $crate::client::Request for [<REQ_ $method>] {
-                        type Q = $req_type;
-                        type P = $rep_type;
-                        const METHOD_ID: u8 = $id;
-                    }
-                }
-            )*
-            $(
-                paste::item! {
                     // client_request_export!($request_mod, $method, $req_opt_buf, $rep_opt_buf);
                     pub type $method = $crate::client::RequestType<
-                    [<REQ_ $method>],
+                    methodid::$method,
+                    $req_type,
                     $req_opt_buf,
+                    $rep_type,
                     $rep_opt_buf,
                     >;
-                }
             )*
     };
 }
