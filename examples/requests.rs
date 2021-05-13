@@ -26,11 +26,11 @@ server_requests! {
 }
 
 fn main() -> () {
-    const buf_len: usize = 4096;
-    let mut read_buf = vec![0; buf_len];
-    let mut write_buf = vec![0; buf_len];
+    const BUF_LEN: usize = 4096;
+    let mut read_buf = vec![0; BUF_LEN];
+    let mut write_buf = vec![0; BUF_LEN];
 
-    let mut rpc_client = client::RpcClient::new(buf_len as u16);
+    let mut rpc_client = client::RpcClient::new(BUF_LEN as u16);
 
     let mut req0 = None;
     let mut req1 = None;
@@ -70,7 +70,7 @@ fn main() -> () {
             hex::encode(&read_buf[..read_buf_len])
         );
 
-        let mut rpc_server = server::RpcServer::new(buf_len as u16);
+        let mut rpc_server = server::RpcServer::new(BUF_LEN as u16);
         let mut pos = 0;
         let mut read_len = consts::REQ_HEADER_LEN;
         let mut write_buf_len = 0;
