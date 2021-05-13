@@ -27,14 +27,6 @@
     - [ ] Support for holding 255 async uncompleted requests.
 - [ ] Stream methods.
 
-## Notes
-
-The current client implementation requires the `paste` crate.  Add this to your `Cargo.toml`:
-```
-[dependencies]
-paste = "0.1.7"
-```
-
 ## Packet format
 
 - The request packet consists of a 7 byte header, an optional body and an
