@@ -4,7 +4,7 @@ use super::*;
 use core;
 use core::convert;
 use core::marker::PhantomData;
-use core::mem::{self, swap};
+use core::mem::swap;
 
 use postcard;
 use serde::{de::DeserializeOwned, Serialize};
@@ -12,16 +12,12 @@ use serde::{de::DeserializeOwned, Serialize};
 #[derive(Debug)]
 pub enum Error {
     SerializeDeserialize(postcard::Error),
-    ReplySlotEmpty,
-    ReplySlotWaiting,
-    ReplySlotComplete,
-    ReplySlotReceiving,
-    ReplySlotOptBufMissing,
     ReceivedBufTooShort,
     ReplyBodyTooLong,
     ReplyOptBufTooLong,
     ReplyOptBufUnexpected,
-    BufLenNotZero,
+    NotIdle,
+    NotExpectingBytes,
     TODO,
 }
 
@@ -182,7 +178,7 @@ impl RpcClient {
     ) -> Result<usize> {
         match self.state {
             State::Idle => {}
-            _ => return Err(Error::TODO),
+            _ => return Err(Error::NotIdle),
         }
         let body_buf = postcard::to_slice(&body, &mut buf[REQ_HEADER_LEN..])?;
         header.body_len = body_buf.len() as u16;
@@ -244,7 +240,7 @@ impl RpcClient {
                     self.state = State::WaitTakeReply { header: rep_header };
                     return Ok((REP_HEADER_LEN, Some(chan_id)));
                 }
-                _ => return Err(Error::TODO),
+                _ => return Err(Error::NotExpectingBytes),
             }
         }
     }
