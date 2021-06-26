@@ -12,12 +12,12 @@ categories = ["embedded", "no-std"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
-[dependencies]
-postcard = "0.4.2"
-heapless = "0.5.1"
+[dependencies.postcard]
+version = "0.7.0"
+default-features = false
 
 [dependencies.serde]
-version = "1.0.102"
+version = "1.0.126"
 default-features = false
 
 [dev-dependencies]
@@ -25,4 +25,4 @@ hex = "0.4.0"
 
 [features]
 default = ["std"]
-std = ["serde/std"]
+std = ["serde/std", "postcard/use-std"]
